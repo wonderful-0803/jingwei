@@ -1,46 +1,39 @@
 # Jingwei
 
-Jingwei 是一个面向 Rust 应用的显式组装式 Agent harness。它提供稳定的 Agent、会话、模型、工具与插件词汇，以及一个负责生命周期的 `Harness`；应用程序自行选择 Agent、模型 provider 和持久化位置。
+> 为 Rust 应用提供可组合、可审计、显式装配的 Agent runtime 基础设施。
 
-v0 的重点是可组合、可审计的进程内运行时，而不是一套隐式配置、自动选型或业务应用框架。
+Jingwei 提供稳定的 Agent、会话、模型、工具与插件词汇，以及负责生命周期的
+`Harness`。应用保有 Agent 实现、provider 选择、持久化位置和异步运行时的控制权。
 
-## 开始前
+v0版本目标是让进程内 Agent 组合清楚、可检查，而不是用隐式配置替代应用决策。
 
-- 使用仓库固定的 Rust 工具链：Rust `1.96.0`。
-- 将所有 Jingwei crate 固定到**同一个已发布 Git tag**。不要让它们分别跟随分支或不同提交。
-- `jingwei-openai` 仅在应用需要 OpenAI-compatible 模型 provider 时使用；添加该 crate 本身不会发起模型请求。
+## Why Jingwei?
 
-下例中的 `<release-tag>` 应替换为维护者实际发布的不可变 tag；在 tag 出现在仓库发布记录前，不应把它作为应用依赖。
+“Jingwei”取自《山海经》中精卫填海的意象：持续而明确地完成手上的一小步。
+这里借用的是“坚持”的含义，而不是对神话作技术承诺。Jingwei 把这种取向落在
+基础设施上：每个 provider、runtime 和生命周期步骤都由应用显式组合，因此可以
+被审计、替换和长期维护。
 
-## 通过 Git tag 使用
+## 快速开始
 
-在应用的 `Cargo.toml` 中添加四个公开的直接依赖：
+使用仓库指定的 Rust `1.96.0` 工具链。当前公开仓库没有发布 tag，因此请把同一组
+Jingwei crate 固定到同一个不可变提交，而不要让它们分别跟随分支：
 
 ```toml
 [dependencies]
-jingwei = { git = "https://github.com/wonderful-0803/jingwei", tag = "<release-tag>" }
-jingwei-standard = { git = "https://github.com/wonderful-0803/jingwei", tag = "<release-tag>" }
-jingwei-journal-jsonl = { git = "https://github.com/wonderful-0803/jingwei", tag = "<release-tag>" }
-jingwei-openai = { git = "https://github.com/wonderful-0803/jingwei", tag = "<release-tag>" }
+jingwei = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
+jingwei-standard = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
+jingwei-journal-jsonl = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
 
-# 应用自己的异步执行器。
+# 宿主应用拥有自己的 async runtime。
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-四个 crate 的职责边界如下：
+当你要升级时，应将所有 Jingwei crate 一起切换到另一个经确认的相同提交。未来若采用
+不可变 tag，也应让所有 Jingwei crate 指向同一个 tag。
 
-| Crate | 职责 |
-| --- | --- |
-| `jingwei` | 面向应用的窄 facade：`Harness`、Agent/Session/Plugin 词汇和稳定 re-export。它不会隐式安装 provider。 |
-| `jingwei-standard` | 四个官方 canonical runtime 的候选集合；它只安装候选项，不选择或激活模型、持久化或工具 provider。 |
-| `jingwei-journal-jsonl` | 明确选择的 append-only JSONL `SessionPersistence` provider。 |
-| `jingwei-openai` | 明确选择的 OpenAI-compatible 原始 LLM provider，适用于 `/chat/completions` 端点。 |
-
-`tokio` 由宿主应用拥有；Jingwei 不创建或接管应用的 async runtime。
-
-## 最小 Echo Agent（不请求模型）
-
-下面的完整示例只激活 JSONL persistence、canonical SessionRuntime 和 canonical AgentRuntime。`EchoAgent` 没有声明模型能力，也不会调用 `ctx.model()`，因此不会产生网络或模型请求。
+以下程序实现一个没有模型能力的 Echo Agent。它只选择 JSONL persistence、canonical
+SessionRuntime 与 canonical AgentRuntime，因此不会产生网络或模型请求。
 
 ```rust
 use std::sync::Arc;
@@ -79,7 +72,7 @@ struct EchoAgentPlugin;
 
 impl Plugin for EchoAgentPlugin {
     fn descriptor(&self) -> PluginDescriptor {
-        PluginDescriptor::new("example.echo-agent")
+        PluginDescriptor::new("getting-started.echo-agent")
     }
 
     fn mount(&self, ctx: &mut MountContext<'_>) -> Result<(), MountError> {
@@ -102,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session_id = SessionId::new();
     let turn = harness.run_turn(&session_id, "echo", "hello, Jingwei").await;
 
-    // `shutdown` 是显式的 async 生命周期步骤；即使本轮失败也必须执行它。
+    // 即使本轮失败，也要完成显式异步清理。
     let shutdown = harness.shutdown().await;
     let report = turn?;
     shutdown?;
@@ -112,11 +105,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-输出为 `echo: hello, Jingwei`。JSONL 事件数据会写入 `jingwei-data`；该目录由应用选择和管理。
+输出为 `echo: hello, Jingwei`。JSONL 数据写入 `jingwei-data`，其路径、保留策略与
+访问控制均由应用负责。
 
-## 可选：接入 OpenAI-compatible provider
+## 组成与包边界
 
-仅在 Agent 需要模型能力时，才添加 provider 并显式选择它和 canonical LLM runtime。下列片段替换或加入上例中 `.build()` 之前的 builder 链：
+| Crate | 责任 |
+| --- | --- |
+| `jingwei` | 面向应用的窄 façade：`Harness`、Agent/Session/Plugin 词汇和稳定 re-export；不隐式安装 provider。 |
+| `jingwei-standard` | 安装四个 canonical runtime 候选项；不会选择或激活模型、持久化或工具 provider。 |
+| `jingwei-journal-jsonl` | 由应用选择的 append-only JSONL `SessionPersistence` provider。 |
+| `jingwei-openai` | 可选的 OpenAI-compatible 原始 LLM provider，适用于 `/chat/completions` 端点。 |
+
+`tokio`、Agent 实现、provider 配置和数据目录都属于宿主应用。若应用需要工具能力，
+应显式添加对应的 tool provider 与 runtime 选择；安装 `jingwei-standard` 本身不会启用工具循环。
+
+## 可选：OpenAI-compatible provider
+
+仅当 Agent 明确需要模型能力时，再添加该依赖，并固定为与其余 Jingwei crate 相同的提交：
+
+```toml
+[dependencies]
+jingwei-openai = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
+```
+
+然后在上面的 builder 链中加入并显式选择 provider 与 canonical LLM runtime：
 
 ```rust
 use jingwei_openai::{OpenAiConfig, OpenAiLlmPlugin, OPENAI_PROVIDER_KEY};
@@ -142,26 +155,17 @@ let harness = StandardCoreBundle::new()
     .await?;
 ```
 
-该配置只构造和选择 provider，不会自行请求端点。真正的模型调用只能由一个明确声明 LLM 能力、并在 turn 中调用 `AgentContext::model()` 的 Agent 发起。`OpenAiConfig` 接受 HTTP(S) base URL；例如上例会请求 `<base-url>/chat/completions`。API key 是可选的，应用应自行从适当的 secret source 提供它。
+构造和选择该 provider 不会自行请求端点。只有明确声明 LLM 能力、并在 turn 中调用
+`AgentContext::model()` 的 Agent 才会发起模型调用。应用应从合适的 secret source 提供 API key。
 
-## 生命周期、JSONL 与并发边界
+## 生命周期与边界
 
-- `Harness::build().await` 只在选中 provider 的依赖闭包完成构造和启动后返回。调用方必须在不再使用它时完成 `Harness::shutdown().await`；Drop、取消或遗弃 future 不能替代异步清理。
-- `SessionRuntime` 是会话事件的唯一写入权威。相同 `SessionId` 的 turn 在同一 runtime 内按 mailbox 串行化；不同 session 可以独立推进。
-- JSONL adapter 按完整换行记录追加，并在每次持久化后执行 flush 与文件 `sync_data`。损坏或截断的尾部会报错关闭，而不会被静默修复。
-- 并发写入仅覆盖同一 `JsonlSessionPersistence` 实例及其 clone。多个 adapter 实例或多个进程若指向同一数据根目录，不受支持；需要跨进程协调时请在应用层提供单写入者或外部协调机制。
-- JSONL 文件是会话记录，不是通用数据库、跨进程锁或目录项掉电持久化保证。应用应为数据保留、备份、访问控制和路径生命周期负责。
-
-## v0 边界
-
-v0 不承诺以下能力：
-
-- 自动选择模型、provider、持久化位置或配置来源；这些选择始终由应用显式完成。
-- 二进制分发、安装器、Docker 镜像、远程 secret manager 或二进制签名。
-- 动态插件加载、稳定 ABI、通用模型驱动工具循环、路由或 replay 驱动执行。
-- 多进程 JSONL 协调、历史日志迁移、自动恢复或损坏日志修复。
-
-如果一个应用需要这些能力，应在自身边界实现，或等待后续具有单独兼容性契约的 Jingwei 版本。
+- `Harness::build().await` 在选中 provider 的依赖闭包完成构造和启动后返回；调用方必须在不再使用
+  runtime 时执行 `Harness::shutdown().await`。Drop、取消或遗弃 future 不能替代异步清理。
+- 同一 `SessionId` 的 turn 在一个 runtime 内串行化；不同会话可以独立推进。
+- JSONL adapter 支持同一实例及其 clone 的进程内协调，不支持多个 adapter 实例或多个进程同时写入同一数据根目录。
+- v0 不自动选择模型、provider、持久化位置或配置来源，也不承诺动态插件加载、稳定 ABI、通用模型驱动
+  工具循环或跨进程 JSONL 协调。
 
 ## License
 
