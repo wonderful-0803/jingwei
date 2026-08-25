@@ -1,0 +1,23 @@
+[package]
+name = "jingwei"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei"
+description = "Jingwei Rust Agent Harness 公共 façade"
+
+[dependencies]
+jingwei-agent = { workspace = true }
+jingwei-core = { workspace = true }
+jingwei-llm = { workspace = true }
+jingwei-plugin = { workspace = true }
+jingwei-runtime = { workspace = true }
+jingwei-session = { workspace = true }
+jingwei-tool = { workspace = true }

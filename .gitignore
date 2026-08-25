@@ -1,0 +1,27 @@
+# Public source-mirror exclusions. The staged release tree is the final allowlist;
+# these rules prevent ordinary Git adds from including local engineering material.
+/.agents/
+/.codex/
+/.github/
+/.trellis/
+/AGENTS.md
+/CONTEXT.md
+/.gitattributes
+/apps/
+/crates/support/
+/docs/
+/examples/
+/scripts/
+/sessions/
+/target/
+/Cargo.lock
+/results/
+
+# Standalone validation assets are not part of the public source mirror.
+**/tests/
+**/benches/
+**/fixtures/
+**/fixture/
+*.jsonl
+*.jsonl.tmp
+**/*.rs.bk
