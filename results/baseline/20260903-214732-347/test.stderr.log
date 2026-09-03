@@ -1,0 +1,35 @@
+   Compiling jingwei-journal-jsonl v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\jsonl)
+   Compiling jingwei-tool-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\runtime)
+   Compiling jingwei-standard v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\standard)
+   Compiling jingwei-agent-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.53s
+     Running unittests src\lib.rs (target\debug\deps\jingwei-a7c1ffb959ae6a3a.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_agent-7802cadc67919c0a.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_agent_runtime-7bf85ccd04fb96ad.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_core-2ca98df0247854d0.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_journal_jsonl-8d58c0e8b8561be7.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_llm-4b7829f6d519fca3.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_llm_runtime-7cfb450527f74226.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_openai-457b24b047fab470.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_plugin-c2e9cff760a4d186.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_runtime-c5027f8a47e1a696.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_session-cb15536de20699af.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_session_runtime-5356e9575659a68d.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_standard-467657793ffb08ad.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_tool-7c4590d1be53193b.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_tool_runtime-3575e20cda02f8ec.exe)
+   Doc-tests jingwei
+   Doc-tests jingwei_agent
+   Doc-tests jingwei_agent_runtime
+   Doc-tests jingwei_core
+   Doc-tests jingwei_journal_jsonl
+   Doc-tests jingwei_llm
+   Doc-tests jingwei_llm_runtime
+   Doc-tests jingwei_openai
+   Doc-tests jingwei_plugin
+   Doc-tests jingwei_runtime
+   Doc-tests jingwei_session
+   Doc-tests jingwei_session_runtime
+   Doc-tests jingwei_standard
+   Doc-tests jingwei_tool
+   Doc-tests jingwei_tool_runtime

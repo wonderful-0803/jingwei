@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sdk/facade",
+    "crates/core/core",
+    "crates/core/agent",
+    "crates/llm/llm",
+    "crates/llm/runtime",
+    "crates/llm/openai",
+    "crates/tools/tool",
+    "crates/tools/runtime",
+    "crates/session/session",
+    "crates/session/runtime",
+    "crates/session/jsonl",
+    "crates/plugin/plugin",
+    "crates/runtime/agent",
+    "crates/runtime/runtime",
+    "crates/runtime/standard",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/wonderful-0803/jingwei"
+homepage = "https://github.com/wonderful-0803/jingwei"
+readme = "README.md"
+keywords = ["agent", "ai", "llm", "framework"]
+categories = ["asynchronous", "development-tools"]
+exclude = [
+    "tests/**",
+    "benches/**",
+    "examples/**",
+    "fixtures/**",
+    "fixture/**",
+    "target/**",
+    "sessions/**",
+    "scripts/**",
+    "docs/**",
+    "Cargo.lock",
+]
+
+[workspace.dependencies]
+jingwei = { path = "crates/sdk/facade", version = "=0.1.0" }
+jingwei-core = { path = "crates/core/core", version = "=0.1.0" }
+jingwei-agent = { path = "crates/core/agent", version = "=0.1.0" }
+jingwei-llm = { path = "crates/llm/llm", version = "=0.1.0" }
+jingwei-llm-runtime = { path = "crates/llm/runtime", version = "=0.1.0" }
+jingwei-openai = { path = "crates/llm/openai", version = "=0.1.0" }
+jingwei-tool = { path = "crates/tools/tool", version = "=0.1.0" }
+jingwei-tool-runtime = { path = "crates/tools/runtime", version = "=0.1.0" }
+jingwei-session = { path = "crates/session/session", version = "=0.1.0" }
+jingwei-session-runtime = { path = "crates/session/runtime", version = "=0.1.0" }
+jingwei-journal-jsonl = { path = "crates/session/jsonl", version = "=0.1.0" }
+jingwei-plugin = { path = "crates/plugin/plugin", version = "=0.1.0" }
+jingwei-agent-runtime = { path = "crates/runtime/agent", version = "=0.1.0" }
+jingwei-runtime = { path = "crates/runtime/runtime", version = "=0.1.0" }
+jingwei-standard = { path = "crates/runtime/standard", version = "=0.1.0" }
+
+async-stream = "0.3"
+futures = "0.3"
+jsonschema = { version = "0.50", default-features = false }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

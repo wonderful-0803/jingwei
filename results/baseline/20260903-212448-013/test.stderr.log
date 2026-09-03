@@ -1,0 +1,179 @@
+   Compiling cfg-if v1.0.4
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling pin-project-lite v0.2.17
+   Compiling windows-link v0.2.1
+   Compiling futures-core v0.3.34
+   Compiling serde_core v1.0.229
+   Compiling futures-sink v0.3.34
+   Compiling smallvec v1.16.0
+   Compiling slab v0.4.12
+   Compiling futures-channel v0.3.34
+   Compiling zmij v1.0.23
+   Compiling windows-sys v0.61.2
+   Compiling futures-task v0.3.34
+   Compiling scopeguard v1.2.0
+   Compiling futures-io v0.3.34
+   Compiling lock_api v0.4.14
+   Compiling futures-util v0.3.34
+   Compiling parking_lot_core v0.9.12
+   Compiling bytes v1.12.1
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling parking_lot v0.12.5
+   Compiling getrandom v0.4.3
+   Compiling thiserror v2.0.20
+   Compiling uuid v1.26.0
+   Compiling futures-executor v0.3.34
+   Compiling jingwei-core v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\core)
+   Compiling futures v0.3.34
+   Compiling once_cell v1.21.4
+   Compiling zerofrom v0.1.8
+   Compiling tracing-core v0.1.36
+   Compiling stable_deref_trait v1.2.1
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.8
+   Compiling jingwei-session v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\session)
+   Compiling tracing v0.1.44
+   Compiling tinystr v0.8.4
+   Compiling jingwei-tool v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\tool)
+   Compiling writeable v0.6.4
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.5
+   Compiling tokio v1.53.1
+   Compiling litemap v0.8.3
+   Compiling icu_locale_core v2.3.0
+   Compiling zerotrie v0.2.5
+   Compiling potential_utf v0.1.6
+   Compiling utf8_iter v1.0.4
+   Compiling foldhash v0.2.0
+   Compiling allocator-api2 v0.2.21
+   Compiling equivalent v1.0.2
+   Compiling percent-encoding v2.3.2
+   Compiling hashbrown v0.17.1
+   Compiling icu_provider v2.3.1
+   Compiling icu_collections v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling num-traits v0.2.19
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling async-stream v0.3.6
+   Compiling num-integer v0.1.47
+   Compiling http v1.5.0
+   Compiling num-bigint v0.4.8
+   Compiling tokio-util v0.7.19
+   Compiling idna_adapter v1.2.2
+   Compiling jingwei-llm v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\llm)
+   Compiling jingwei-agent v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\agent)
+   Compiling idna v1.1.0
+   Compiling regex-syntax v0.8.11
+   Compiling jingwei-plugin v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\plugin\plugin)
+   Compiling num-rational v0.4.2
+   Compiling jingwei-session-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\runtime)
+   Compiling num-iter v0.1.46
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.3.4
+   Compiling num-complex v0.4.6
+   Compiling aho-corasick v1.1.5
+   Compiling ref-cast v1.0.27
+   Compiling jingwei-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\runtime)
+   Compiling num v0.4.3
+   Compiling http-body v1.1.0
+   Compiling borrow-or-share v0.2.4
+   Compiling bit-vec v0.8.0
+   Compiling fluent-uri v0.4.1
+   Compiling regex-automata v0.4.18
+   Compiling bit-set v0.8.0
+   Compiling fraction v0.16.0
+   Compiling jingwei-agent-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\agent)
+   Compiling ahash v0.8.12
+   Compiling jingwei-llm-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\runtime)
+   Compiling indexmap v2.14.1
+   Compiling tower-service v0.3.3
+   Compiling bytecount v0.6.9
+   Compiling atomic-waker v1.1.2
+   Compiling outref v0.5.2
+   Compiling try-lock v0.2.5
+   Compiling fnv v1.0.7
+   Compiling num-cmp v0.1.0
+   Compiling vsimd v0.8.0
+   Compiling micromap v0.3.0
+   Compiling referencing v0.50.1
+   Compiling uuid-simd v0.8.0
+   Compiling jsonschema-value v0.50.1
+   Compiling h2 v0.4.19
+   Compiling want v0.3.1
+   Compiling regex v1.13.1
+   Compiling fancy-regex v0.19.0
+   Compiling unicode-general-category v1.1.0
+   Compiling httparse v1.10.1
+   Compiling strum v0.28.0
+   Compiling jsonschema-regex v0.50.1
+   Compiling jingwei-journal-jsonl v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\jsonl)
+   Compiling form_urlencoded v1.2.2
+   Compiling schannel v0.1.29
+   Compiling email_address v0.2.9
+   Compiling windows-result v0.4.1
+   Compiling windows-strings v0.5.1
+   Compiling data-encoding v2.11.1
+   Compiling windows-registry v0.6.1
+   Compiling jsonschema v0.50.1
+   Compiling native-tls v0.2.18
+   Compiling hyper v1.11.1
+   Compiling libc v0.2.189
+   Compiling sync_wrapper v1.0.2
+   Compiling ipnet v2.12.1
+   Compiling base64 v0.22.1
+   Compiling tower-layer v0.3.3
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling tokio-native-tls v0.3.1
+   Compiling url v2.5.8
+   Compiling http-body-util v0.1.5
+   Compiling ryu v1.0.23
+   Compiling zeroize v1.9.0
+   Compiling bitflags v2.13.1
+   Compiling tower-http v0.6.11
+   Compiling rustls-pki-types v1.15.1
+   Compiling hyper-tls v0.6.0
+   Compiling serde_urlencoded v0.7.1
+   Compiling encoding_rs v0.8.35
+   Compiling mime v0.3.17
+   Compiling log v0.4.34
+   Compiling jingwei v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\sdk\facade)
+   Compiling reqwest v0.12.28
+   Compiling jingwei-tool-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\runtime)
+   Compiling jingwei-standard v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\standard)
+   Compiling jingwei-openai v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\openai)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.78s
+     Running unittests src\lib.rs (target\debug\deps\jingwei-38f205f3d406fc17.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_agent-5a002e84957e7c15.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_agent_runtime-0650bc17aa9c5818.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_core-2ca98df0247854d0.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_journal_jsonl-f149dbf810192905.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_llm-8f41edcca524b19a.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_llm_runtime-2fb93335f416dfee.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_openai-159f7b0c5bc4c1d9.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_plugin-e7bd88397620c82b.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_runtime-91b480ee5e7c095e.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_session-cb15536de20699af.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_session_runtime-0cbf8dfc1493456e.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_standard-f967a89d99bfefce.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_tool-7c4590d1be53193b.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_tool_runtime-2f42f964f933db63.exe)
+   Doc-tests jingwei
+   Doc-tests jingwei_agent
+   Doc-tests jingwei_agent_runtime
+   Doc-tests jingwei_core
+   Doc-tests jingwei_journal_jsonl
+   Doc-tests jingwei_llm
+   Doc-tests jingwei_llm_runtime
+   Doc-tests jingwei_openai
+   Doc-tests jingwei_plugin
+   Doc-tests jingwei_runtime
+   Doc-tests jingwei_session
+   Doc-tests jingwei_session_runtime
+   Doc-tests jingwei_standard
+   Doc-tests jingwei_tool
+   Doc-tests jingwei_tool_runtime

@@ -1,0 +1,49 @@
+   Compiling jingwei-core v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\core)
+   Compiling jingwei-session v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\session)
+   Compiling jingwei-llm v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\llm)
+   Compiling jingwei-tool v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\tool)
+   Compiling jingwei-agent v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\agent)
+   Compiling jingwei-action v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\agent\action)
+   Compiling jingwei-plugin v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\plugin\plugin)
+   Compiling jingwei-session-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\runtime)
+   Compiling jingwei-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\runtime)
+   Compiling jingwei-llm-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\runtime)
+   Compiling jingwei-agent-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\agent)
+   Compiling jingwei-journal-jsonl v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\jsonl)
+   Compiling jingwei-tool-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\runtime)
+   Compiling jingwei-standard v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\standard)
+   Compiling jingwei v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\sdk\facade)
+   Compiling jingwei-openai v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\openai)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.46s
+     Running unittests src\lib.rs (target\debug\deps\jingwei-f568ae47694043f1.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_action-e5970795ae1bbd3c.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_agent-5a002e84957e7c15.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_agent_runtime-6e0ad170b119b996.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_core-2ca98df0247854d0.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_journal_jsonl-f149dbf810192905.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_llm-8f41edcca524b19a.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_llm_runtime-0f20bfc4c96e7fb3.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_openai-159f7b0c5bc4c1d9.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_plugin-e7bd88397620c82b.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_runtime-a954c13fc30ee067.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_session-cb15536de20699af.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_session_runtime-0cbf8dfc1493456e.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_standard-55892efe2ffc7ddb.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_tool-7c4590d1be53193b.exe)
+     Running unittests src\lib.rs (target\debug\deps\jingwei_tool_runtime-2f42f964f933db63.exe)
+   Doc-tests jingwei
+   Doc-tests jingwei_action
+   Doc-tests jingwei_agent
+   Doc-tests jingwei_agent_runtime
+   Doc-tests jingwei_core
+   Doc-tests jingwei_journal_jsonl
+   Doc-tests jingwei_llm
+   Doc-tests jingwei_llm_runtime
+   Doc-tests jingwei_openai
+   Doc-tests jingwei_plugin
+   Doc-tests jingwei_runtime
+   Doc-tests jingwei_session
+   Doc-tests jingwei_session_runtime
+   Doc-tests jingwei_standard
+   Doc-tests jingwei_tool
+   Doc-tests jingwei_tool_runtime

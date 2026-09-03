@@ -1,0 +1,26 @@
+[package]
+name = "jingwei-openai"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-openai"
+description = "OpenAI-compatible 模型适配器（llama.cpp / vLLM 直连）"
+
+[dependencies]
+jingwei-llm = { workspace = true }
+jingwei-plugin = { workspace = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }

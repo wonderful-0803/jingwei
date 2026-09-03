@@ -1,0 +1,175 @@
+[
+  {
+    "Name": "jingwei",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-agent",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-core",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/cancellation.rs",
+      "src/capability.rs",
+      "src/event.rs",
+      "src/id.rs",
+      "src/lib.rs",
+      "src/observer.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-llm",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs",
+      "src/protocol.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-session",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-tool",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-plugin",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/graph.rs",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-runtime",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-agent-runtime",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-journal-jsonl",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-session-runtime",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/coordinator.rs",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-llm-runtime",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-openai",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-tool-runtime",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  },
+  {
+    "Name": "jingwei-standard",
+    "Files": [
+      ".cargo_vcs_info.json",
+      "Cargo.lock",
+      "Cargo.toml",
+      "Cargo.toml.orig",
+      "README.md",
+      "src/lib.rs"
+    ]
+  }
+]

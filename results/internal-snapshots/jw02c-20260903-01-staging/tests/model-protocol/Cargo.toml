@@ -1,0 +1,25 @@
+[package]
+name = "jingwei-private-protocol-tests"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+# Standalone private workspace: never added to the public package graph.
+[workspace]
+
+[dependencies]
+jingwei = { path = "../../crates/sdk/facade", features = ["actions"] }
+jingwei-tool-runtime = { path = "../../crates/tools/runtime" }
+jingwei-session-runtime = { path = "../../crates/session/runtime" }
+jingwei-agent-runtime = { path = "../../crates/runtime/agent" }
+jingwei-core = { path = "../../crates/core/core" }
+jingwei-llm-runtime = { path = "../../crates/llm/runtime" }
+jingwei-openai = { path = "../../crates/llm/openai" }
+futures = "0.3"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "time", "sync"] }
+tokio-util = "0.7"
+
+[lints.rust]
+unsafe_code = "forbid"

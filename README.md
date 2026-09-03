@@ -7,6 +7,26 @@ Jingwei 提供稳定的 Agent、会话、模型、工具与插件词汇，以及
 
 v0版本目标是让进程内 Agent 组合清楚、可检查，而不是用隐式配置替代应用决策。
 
+当前工作区正在开发 v0.1。新增统一模型协议和可选 `jingwei-action` 单步动作组件，
+入口见[开发指南](docs/guide/src/index.md)与[单步动作执行](docs/guide/src/action-step.md)。
+这些开发功能不包含在下方固定的旧提交中；使用新功能须基于同一个实际取得的源码快照，
+不能把当前进度理解为已发布到 crates.io 的完整 v0.1。
+
+## 开发分支
+
+`dev` 用于持续开发 v0.1，纳入源码、开发指南、PRD、测试、脚本、锁文件及开发记录；
+所有层级的 `target/` 编译产物均不纳入。开发分支不是私有存储，推送前须检查凭据和敏感数据。
+`main` 不随本次开发快照更新，也不在本次创建发布 tag 或发布 Cargo 包。
+
+```text
+git clone --branch dev https://github.com/wonderful-0803/jingwei.git
+cd jingwei
+cargo check --workspace --all-targets --all-features --locked
+```
+
+开发指南保持在独立的 `docs/guide`，测试工程保持在 `tests/model-protocol`。
+开发资产入 Git 不改变 Cargo 包的排除规则；正式交付仍需单独核验包内容。
+
 ## Why Jingwei?
 
 “Jingwei”取自《山海经》中精卫填海的意象：持续而明确地完成手上的一小步。
@@ -116,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `jingwei-standard` | 安装四个 canonical runtime 候选项；不会选择或激活模型、持久化或工具 provider。 |
 | `jingwei-journal-jsonl` | 由应用选择的 append-only JSONL `SessionPersistence` provider。 |
 | `jingwei-openai` | 可选的 OpenAI-compatible 原始 LLM provider，适用于 `/chat/completions` 端点。 |
+| `jingwei-action` | 可选单步动作组件：原生/JSON 协议、CallTool/Final/AskUser、受控执行及证据关联；通过 façade 的 `actions` feature 启用。 |
 
 `tokio`、Agent 实现、provider 配置和数据目录都属于宿主应用。若应用需要工具能力，
 应显式添加对应的 tool provider 与 runtime 选择；安装 `jingwei-standard` 本身不会启用工具循环。

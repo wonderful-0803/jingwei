@@ -1,0 +1,3 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running unittests src\lib.rs (target\debug\deps\jingwei_private_protocol_tests-b386ee99bf01cf54.exe)
+   Doc-tests jingwei_private_protocol_tests

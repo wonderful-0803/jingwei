@@ -1,0 +1,38 @@
+{
+  "stage": "JW-02-b",
+  "date": "2026-09-03",
+  "command": "cargo package --manifest-path <package-manifest> --list --allow-dirty --offline",
+  "packageCount": 15,
+  "passed": 15,
+  "rejectedPaths": [
+    "tests/",
+    "examples/",
+    "fixtures/",
+    "fixture/",
+    "benches/",
+    "docs/",
+    "scripts/"
+  ],
+  "packages": [
+    "jingwei",
+    "jingwei-agent",
+    "jingwei-core",
+    "jingwei-llm",
+    "jingwei-session",
+    "jingwei-tool",
+    "jingwei-plugin",
+    "jingwei-runtime",
+    "jingwei-agent-runtime",
+    "jingwei-journal-jsonl",
+    "jingwei-session-runtime",
+    "jingwei-llm-runtime",
+    "jingwei-openai",
+    "jingwei-tool-runtime",
+    "jingwei-standard"
+  ],
+  "limitations": [
+    "List-only check, not .crate build verification.",
+    "14 pre-existing inline tests remain in public source; migration is a later release gate.",
+    "Cargo-generated Cargo.lock appears in package listing independently of workspace lockfile exclusions."
+  ]
+}

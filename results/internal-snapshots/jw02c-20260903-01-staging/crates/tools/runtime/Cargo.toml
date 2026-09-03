@@ -1,0 +1,37 @@
+[package]
+name = "jingwei-tool-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-tool-runtime"
+description = "Canonical controlled ToolRuntime implementation for Jingwei"
+
+[dependencies]
+futures.workspace = true
+jingwei-core.workspace = true
+jingwei-plugin.workspace = true
+jingwei-tool.workspace = true
+jsonschema.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+jingwei-agent.workspace = true
+jingwei-agent-runtime.workspace = true
+jingwei-journal-jsonl.workspace = true
+jingwei-runtime.workspace = true
+jingwei-session.workspace = true
+jingwei-session-runtime.workspace = true
+
+[lints]
+workspace = true

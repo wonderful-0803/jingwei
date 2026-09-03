@@ -1,0 +1,26 @@
+[package]
+name = "jingwei-action"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-action"
+description = "Optional model action protocols and controlled single-step execution for Jingwei"
+
+[dependencies]
+jingwei-core.workspace = true
+jingwei-llm.workspace = true
+jingwei-tool.workspace = true
+jsonschema.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
