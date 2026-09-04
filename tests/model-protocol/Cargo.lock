@@ -789,6 +789,7 @@ dependencies = [
  "jingwei-llm",
  "jingwei-plugin",
  "jsonschema",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-util",

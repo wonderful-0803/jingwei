@@ -18,7 +18,7 @@ jingwei-llm-runtime = { path = "../../crates/llm/runtime" }
 jingwei-openai = { path = "../../crates/llm/openai" }
 futures = "0.3"
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "time", "sync"] }
+tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "time", "sync", "test-util"] }
 tokio-util = "0.7"
 
 [lints.rust]

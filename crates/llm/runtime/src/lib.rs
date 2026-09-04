@@ -1,6 +1,6 @@
 //! Canonical controlled model runtime.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -11,10 +11,11 @@ use jingwei_llm::{
     GenerationAccumulator, GenerationDelta, GenerationOptions, GenerationPartial,
     GenerationRequest, GenerationResponse, GenerationStreamEvent, LLM_PROVIDER, LLM_RUNTIME, Llm,
     LlmError, LlmRuntime, ModelCallMode, ModelClosureFailure, ModelEventRecorder,
-    ModelFailureCategory, ModelFinishMode, ModelGateway, ModelGatewayError, ModelProtocolError,
-    ModelRecord, ModelRecordVersion, ModelRecordedOutcome, ModelRequest, ModelRequestOptions,
-    ModelResult, ModelRuntimeError, ModelStream, ModelTimeout, ModelTurn, ModelTurnBinding,
-    ModelTurnFailure,
+    ModelFailureCategory, ModelFinishMode, ModelGateway, ModelGatewayError, ModelJobPhase,
+    ModelJobStopReason, ModelOverloadKind, ModelProtocolError, ModelRecord, ModelRecordStage,
+    ModelRecordVersion, ModelRecordedOutcome, ModelRequest, ModelRequestOptions, ModelResult,
+    ModelRuntimeError, ModelSchedulerConfig, ModelSchedulerSnapshot, ModelStream, ModelTimeout,
+    ModelTurn, ModelTurnBinding, ModelTurnFailure,
 };
 use jingwei_plugin::{
     FactoryContext, LifecycleFuture, ManagedService, MountContext, MountError, Plugin,
@@ -25,7 +26,9 @@ use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+mod scheduling;
 mod validation;
+use scheduling::{JobExecution, ScheduledJob, validate_request_size};
 
 const RAW_LLM_DEPENDENCY: &[CapabilityId] = &[LLM_PROVIDER];
 const STREAM_DELTA_BUFFER: usize = 16;
@@ -33,19 +36,27 @@ const MAX_LIFECYCLE_FAILURES: usize = 32;
 
 /// Explicit canonical provider for [`LLM_RUNTIME`].
 pub struct CanonicalLlmRuntimePlugin {
-    default_timeout: Option<Duration>,
+    default_timeout: Duration,
+    scheduler: ModelSchedulerConfig,
 }
 
 impl CanonicalLlmRuntimePlugin {
     pub const fn new() -> Self {
         Self {
-            default_timeout: None,
+            default_timeout: Duration::from_secs(600),
+            scheduler: ModelSchedulerConfig::new(),
         }
     }
 
     #[must_use]
     pub const fn with_default_timeout(mut self, timeout: Duration) -> Self {
-        self.default_timeout = Some(timeout);
+        self.default_timeout = timeout;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_scheduler_config(mut self, config: ModelSchedulerConfig) -> Self {
+        self.scheduler = config;
         self
     }
 }
@@ -65,12 +76,14 @@ impl Plugin for CanonicalLlmRuntimePlugin {
     fn mount(&self, ctx: &mut MountContext<'_>) -> Result<(), MountError> {
         ctx.provide_llm_runtime_factory(Arc::new(CanonicalLlmRuntimeFactory {
             default_timeout: self.default_timeout,
+            scheduler: self.scheduler,
         }))
     }
 }
 
 struct CanonicalLlmRuntimeFactory {
-    default_timeout: Option<Duration>,
+    default_timeout: Duration,
+    scheduler: ModelSchedulerConfig,
 }
 
 impl ServiceFactory<dyn LlmRuntime> for CanonicalLlmRuntimeFactory {
@@ -85,14 +98,25 @@ impl ServiceFactory<dyn LlmRuntime> for CanonicalLlmRuntimeFactory {
             let executor = Handle::try_current().map_err(|error| {
                 RuntimeError::new(format!("LlmRuntime requires a Tokio executor: {error}"))
             })?;
-            if self.default_timeout.is_some_and(|timeout| {
-                !timeout.is_zero() && Instant::now().checked_add(timeout).is_none()
-            }) {
+            if Instant::now().checked_add(self.default_timeout).is_none() {
                 return Err(RuntimeError::new(
                     "canonical LlmRuntime default timeout exceeds the executor clock range",
                 ));
             }
-            let state = Arc::new(RuntimeState::new(llm, self.default_timeout, executor));
+            if self.scheduler.max_concurrency == 0
+                || self.scheduler.max_inflight < self.scheduler.max_concurrency
+                || self.scheduler.max_request_bytes == 0
+            {
+                return Err(RuntimeError::new(
+                    "model scheduler requires positive concurrency and request bytes, and max_inflight >= max_concurrency",
+                ));
+            }
+            let state = Arc::new(RuntimeState::new(
+                llm,
+                self.default_timeout,
+                self.scheduler,
+                executor,
+            ));
             let runtime: Arc<dyn LlmRuntime> = Arc::new(CanonicalLlmRuntime {
                 state: Arc::clone(&state),
             });
@@ -109,6 +133,10 @@ struct CanonicalLlmRuntime {
 }
 
 impl LlmRuntime for CanonicalLlmRuntime {
+    fn scheduler_snapshot(&self) -> Option<ModelSchedulerSnapshot> {
+        Some(self.state.scheduler_snapshot())
+    }
+
     fn bind_turn(
         &self,
         binding: ModelTurnBinding,
@@ -119,17 +147,24 @@ impl LlmRuntime for CanonicalLlmRuntime {
 
 struct RuntimeState {
     llm: Arc<dyn Llm>,
-    default_timeout: Option<Duration>,
+    default_timeout: Duration,
+    scheduler: ModelSchedulerConfig,
     executor: Handle,
     control: Mutex<RuntimeControl>,
     drained: Notify,
 }
 
 impl RuntimeState {
-    fn new(llm: Arc<dyn Llm>, default_timeout: Option<Duration>, executor: Handle) -> Self {
+    fn new(
+        llm: Arc<dyn Llm>,
+        default_timeout: Duration,
+        scheduler: ModelSchedulerConfig,
+        executor: Handle,
+    ) -> Self {
         Self {
             llm,
             default_timeout,
+            scheduler,
             executor,
             control: Mutex::new(RuntimeControl::new()),
             drained: Notify::new(),
@@ -160,8 +195,8 @@ impl RuntimeState {
                 | LifecycleState::Running
                 | LifecycleState::Stopping => {
                     control.lifecycle = LifecycleState::Stopping;
-                    for cancellation in control.jobs.values() {
-                        cancellation.cancel();
+                    for job in control.jobs.values() {
+                        job.cancellation.cancel();
                     }
                 }
             }
@@ -229,7 +264,9 @@ impl RuntimeState {
     fn admit(
         self: &Arc<Self>,
         turn: &Arc<TurnState>,
-    ) -> Result<(u64, Arc<JobCancellation>, JobGuard), ModelGatewayError> {
+        call_id: ModelCallId,
+        timeout: Duration,
+    ) -> Result<(u64, Arc<JobCancellation>, JobGuard, Instant), ModelGatewayError> {
         let mut runtime_control = self.lock_control();
         if runtime_control.lifecycle != LifecycleState::Running {
             return Err(ModelRuntimeError::Stopped.into());
@@ -237,6 +274,24 @@ impl RuntimeState {
         let mut turn_control = turn.lock_control();
         if !turn_control.open {
             return Err(ModelRuntimeError::TurnClosed.into());
+        }
+        let now = Instant::now();
+        let deadline = now
+            .checked_add(timeout)
+            .ok_or(ModelRuntimeError::InvalidTimeout)?;
+        if runtime_control.jobs.len() >= self.scheduler.max_inflight {
+            return Err(ModelRuntimeError::Overloaded {
+                capacity: ModelOverloadKind::InflightFull,
+            }
+            .into());
+        }
+        let dispatched = runtime_control.occupied < self.scheduler.max_concurrency
+            && runtime_control.queue.is_empty();
+        if !dispatched && runtime_control.queue.len() >= self.scheduler.max_queued {
+            return Err(ModelRuntimeError::Overloaded {
+                capacity: ModelOverloadKind::QueueFull,
+            }
+            .into());
         }
         let job_id = runtime_control.next_job_id;
         runtime_control.next_job_id =
@@ -247,9 +302,22 @@ impl RuntimeState {
                 }
             })?;
         let cancellation = Arc::new(JobCancellation::new());
-        runtime_control
-            .jobs
-            .insert(job_id, Arc::clone(&cancellation));
+        runtime_control.jobs.insert(
+            job_id,
+            ScheduledJob::new(
+                call_id,
+                Arc::clone(&cancellation),
+                now,
+                deadline,
+                timeout,
+                dispatched,
+            ),
+        );
+        if dispatched {
+            runtime_control.occupied += 1;
+        } else {
+            runtime_control.queue.push_back(job_id);
+        }
         turn_control.jobs.insert(job_id, Arc::clone(&cancellation));
         drop(turn_control);
         drop(runtime_control);
@@ -257,6 +325,7 @@ impl RuntimeState {
             job_id,
             cancellation,
             JobGuard::new(Arc::clone(self), Arc::clone(turn), job_id),
+            deadline,
         ))
     }
 
@@ -266,6 +335,7 @@ impl RuntimeState {
         job_id: u64,
         closure_failure: Option<ModelGatewayError>,
     ) {
+        self.release_execution(job_id, None);
         let mut runtime_control = self.lock_control();
         let mut turn_control = turn.lock_control();
         if let Some(failure) = closure_failure {
@@ -307,7 +377,9 @@ struct RuntimeControl {
     lifecycle: LifecycleState,
     next_turn_id: u64,
     next_job_id: u64,
-    jobs: BTreeMap<u64, Arc<JobCancellation>>,
+    jobs: BTreeMap<u64, ScheduledJob>,
+    queue: VecDeque<u64>,
+    occupied: usize,
     unacknowledged_failures: BTreeMap<u64, FailureLedger>,
 }
 
@@ -318,6 +390,8 @@ impl RuntimeControl {
             next_turn_id: 0,
             next_job_id: 0,
             jobs: BTreeMap::new(),
+            queue: VecDeque::new(),
+            occupied: 0,
             unacknowledged_failures: BTreeMap::new(),
         }
     }
@@ -402,20 +476,34 @@ impl TurnState {
         input: &GenerationRequest,
         mut options: GenerationOptions,
     ) -> jingwei_llm::ModelFuture<'static, Result<GenerationResponse, ModelGatewayError>> {
-        options.timeout = effective_timeout(options.timeout, self.runtime.default_timeout);
-        let (job_id, local_cancellation, guard) = match self.runtime.admit(self) {
-            Ok(admission) => admission,
-            Err(error) => return ready_complete_error(error),
-        };
-        let request = model_request(ModelCallMode::Complete, input.clone(), &options);
+        let timeout = effective_timeout(options.timeout, self.runtime.default_timeout);
+        options.timeout = Some(timeout);
+        if let Err(error) =
+            validate_request_size(input, &options, self.runtime.scheduler.max_request_bytes)
+        {
+            return ready_complete_error(error);
+        }
+        let call_id = ModelCallId::new();
+        let (job_id, local_cancellation, guard, deadline) =
+            match self.runtime.admit(self, call_id.clone(), timeout) {
+                Ok(admission) => admission,
+                Err(error) => return ready_complete_error(error),
+            };
+        let request = model_request(call_id, ModelCallMode::Complete, input.clone(), &options);
         let operation_cancellation: Arc<dyn CancellationSignal> = Arc::new(CombinedCancellation {
             parent: Arc::clone(&self.cancellation),
             local: local_cancellation.token.clone(),
         });
-        let turn = Arc::clone(self);
+        let job = JobExecution {
+            turn: Arc::clone(self),
+            job_id,
+            deadline,
+            cancellation: operation_cancellation,
+            dispatch: local_cancellation,
+        };
         let (sender, receiver) = oneshot::channel();
         let task = async move {
-            let result = run_complete(turn, request, options, operation_cancellation).await;
+            let result = run_complete(job, request, options).await;
             guard.complete(sender, result);
         };
         let executor = self.runtime.executor.clone();
@@ -440,22 +528,35 @@ impl TurnState {
         input: GenerationRequest,
         mut options: GenerationOptions,
     ) -> ModelStream<'static> {
-        options.timeout = effective_timeout(options.timeout, self.runtime.default_timeout);
-        let (job_id, local_cancellation, guard) = match self.runtime.admit(self) {
-            Ok(admission) => admission,
-            Err(error) => return ready_stream_error(error),
-        };
-        let request = model_request(ModelCallMode::Stream, input, &options);
+        let timeout = effective_timeout(options.timeout, self.runtime.default_timeout);
+        options.timeout = Some(timeout);
+        if let Err(error) =
+            validate_request_size(&input, &options, self.runtime.scheduler.max_request_bytes)
+        {
+            return ready_stream_error(error);
+        }
+        let call_id = ModelCallId::new();
+        let (job_id, local_cancellation, guard, deadline) =
+            match self.runtime.admit(self, call_id.clone(), timeout) {
+                Ok(admission) => admission,
+                Err(error) => return ready_stream_error(error),
+            };
+        let request = model_request(call_id, ModelCallMode::Stream, input, &options);
         let operation_cancellation: Arc<dyn CancellationSignal> = Arc::new(CombinedCancellation {
             parent: Arc::clone(&self.cancellation),
             local: local_cancellation.token.clone(),
         });
-        let turn = Arc::clone(self);
+        let job = JobExecution {
+            turn: Arc::clone(self),
+            job_id,
+            deadline,
+            cancellation: operation_cancellation,
+            dispatch: local_cancellation,
+        };
         let (delta_sender, delta_receiver) = mpsc::channel(STREAM_DELTA_BUFFER);
         let (terminal_sender, terminal_receiver) = oneshot::channel();
         let task = async move {
-            let result =
-                run_stream(turn, request, options, operation_cancellation, delta_sender).await;
+            let result = run_stream(job, request, options, delta_sender).await;
             guard.complete(terminal_sender, result);
         };
         let executor = self.runtime.executor.clone();
@@ -529,13 +630,14 @@ impl ModelGateway for TurnModelGateway {
 }
 
 fn model_request(
+    call_id: ModelCallId,
     mode: ModelCallMode,
     input: GenerationRequest,
     options: &GenerationOptions,
 ) -> ModelRequest {
     ModelRequest {
         version: ModelRecordVersion::V1,
-        call_id: ModelCallId::new(),
+        call_id,
         mode,
         input,
         options: ModelRequestOptions {
@@ -581,12 +683,14 @@ fn stream_projection(
 
 struct JobCancellation {
     token: CancellationToken,
+    dispatched: Notify,
 }
 
 impl JobCancellation {
     fn new() -> Self {
         Self {
             token: CancellationToken::new(),
+            dispatched: Notify::new(),
         }
     }
 
@@ -642,10 +746,10 @@ impl JobGuard {
             .err()
             .filter(|error| is_closure_failure(error))
             .cloned();
-        let _ = sender.send(result);
         self.runtime
             .complete_job(&self.turn, self.job_id, closure_failure);
         self.armed = false;
+        let _ = sender.send(result);
     }
 }
 
@@ -673,13 +777,18 @@ fn is_closure_failure(error: &ModelGatewayError) -> bool {
 }
 
 async fn run_complete(
-    turn: Arc<TurnState>,
+    job: JobExecution,
     request: ModelRequest,
     options: GenerationOptions,
-    cancellation: Arc<dyn CancellationSignal>,
 ) -> Result<GenerationResponse, ModelGatewayError> {
-    append_request(&turn, &request).await?;
-    let semantic = resolve_complete(&turn.runtime.llm, &request, options, &cancellation).await;
+    let stopped = job.record_request(&request, None).await?;
+    let semantic = if let Some(stop) = stopped {
+        CompleteResolution::Stopped(stop)
+    } else if let Err(stop) = job.wait_for_slot(None).await {
+        CompleteResolution::Stopped(stop)
+    } else {
+        resolve_complete(&job, &request, options).await
+    };
     let (result, output) = match semantic {
         CompleteResolution::Succeeded(completion) => (
             successful_result(&request, completion.clone()),
@@ -689,6 +798,10 @@ async fn run_complete(
             failed_result(&request, &error, GenerationPartial::default()),
             Err(error.into()),
         ),
+        CompleteResolution::Stopped(reason) => {
+            let (result, error) = stopped_result(&request, reason);
+            (result, Err(error))
+        }
         CompleteResolution::Internal { code, message } => (
             internal_result(&request, code, message),
             Err(ModelGatewayError::Internal {
@@ -697,13 +810,15 @@ async fn run_complete(
             }),
         ),
     };
-    append_result(&turn, &request, &result).await?;
+    job.release(result_stop_reason(&result));
+    job.record_result(&request, &result).await?;
     output
 }
 
 enum CompleteResolution {
     Succeeded(GenerationResponse),
     ModelFailed(LlmError),
+    Stopped(ModelJobStopReason),
     Internal {
         code: &'static str,
         message: &'static str,
@@ -711,36 +826,31 @@ enum CompleteResolution {
 }
 
 async fn resolve_complete(
-    llm: &Arc<dyn Llm>,
+    job: &JobExecution,
     request: &ModelRequest,
     options: GenerationOptions,
-    cancellation: &Arc<dyn CancellationSignal>,
 ) -> CompleteResolution {
-    if cancellation.is_cancelled() {
-        return CompleteResolution::ModelFailed(LlmError::Cancelled);
+    let llm = &job.turn.runtime.llm;
+    match catch_unwind(AssertUnwindSafe(|| {
+        validation::prepare(&request.input, &llm.capabilities(), ModelCallMode::Complete)
+    })) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return CompleteResolution::ModelFailed(error),
+        Err(_) => {
+            return CompleteResolution::Internal {
+                code: "model_runtime_panicked",
+                message: "Model runtime preflight panicked",
+            };
+        }
     }
-    if options.timeout.is_some_and(|timeout| timeout.is_zero()) {
-        return CompleteResolution::ModelFailed(LlmError::Timeout);
+    if let Err(stop) = job.start_provider(None) {
+        return CompleteResolution::Stopped(stop);
     }
-    let deadline = match options.timeout {
-        Some(timeout) => match Instant::now().checked_add(timeout) {
-            Some(deadline) => Some(deadline),
-            None => {
-                return CompleteResolution::Internal {
-                    code: "model_timeout_out_of_range",
-                    message: "Model timeout exceeds the executor clock range",
-                };
-            }
-        },
-        None => None,
-    };
     let adapter_guard = AdapterCancellationGuard(CancellationToken::new());
     let raw = match catch_unwind(AssertUnwindSafe(|| {
-        validation::prepare(&request.input, &llm.capabilities(), ModelCallMode::Complete)?;
-        Ok::<_, LlmError>(llm.generate(&request.input, options, adapter_guard.token()))
+        llm.generate(&request.input, options, adapter_guard.token())
     })) {
-        Ok(Ok(raw)) => AssertUnwindSafe(raw).catch_unwind(),
-        Ok(Err(error)) => return CompleteResolution::ModelFailed(error),
+        Ok(raw) => AssertUnwindSafe(raw).catch_unwind(),
         Err(_) => {
             return CompleteResolution::Internal {
                 code: "model_runtime_panicked",
@@ -748,19 +858,11 @@ async fn resolve_complete(
             };
         }
     };
-    let output = if let Some(deadline) = deadline {
-        tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => return CompleteResolution::ModelFailed(LlmError::Cancelled),
-            _ = tokio::time::sleep_until(deadline) => return CompleteResolution::ModelFailed(LlmError::Timeout),
-            output = raw => output,
-        }
-    } else {
-        tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => return CompleteResolution::ModelFailed(LlmError::Cancelled),
-            output = raw => output,
-        }
+    let output = tokio::select! {
+        biased;
+        _ = job.cancellation.cancelled() => return CompleteResolution::ModelFailed(LlmError::Cancelled),
+        _ = tokio::time::sleep_until(job.deadline) => return CompleteResolution::ModelFailed(LlmError::Timeout),
+        output = raw => output,
     };
     match output {
         Ok(Ok(completion)) => {
@@ -778,15 +880,19 @@ async fn resolve_complete(
 }
 
 async fn run_stream(
-    turn: Arc<TurnState>,
+    job: JobExecution,
     request: ModelRequest,
     options: GenerationOptions,
-    cancellation: Arc<dyn CancellationSignal>,
     deltas: mpsc::Sender<GenerationDelta>,
 ) -> Result<GenerationResponse, ModelGatewayError> {
-    append_request(&turn, &request).await?;
-    let semantic =
-        resolve_stream(&turn.runtime.llm, &request, options, &cancellation, &deltas).await;
+    let stopped = job.record_request(&request, Some(&deltas)).await?;
+    let semantic = if let Some(stop) = stopped {
+        StreamResolution::Stopped(stop)
+    } else if let Err(stop) = job.wait_for_slot(Some(&deltas)).await {
+        StreamResolution::Stopped(stop)
+    } else {
+        resolve_stream(&job, &request, options, &deltas).await
+    };
     let (result, output) = match semantic {
         StreamResolution::Succeeded(response) => {
             (successful_result(&request, response.clone()), Ok(response))
@@ -798,6 +904,10 @@ async fn run_stream(
             consumer_dropped_result(&request, partial),
             Err(LlmError::Cancelled.into()),
         ),
+        StreamResolution::Stopped(reason) => {
+            let (result, error) = stopped_result(&request, reason);
+            (result, Err(error))
+        }
         StreamResolution::Internal {
             code,
             message,
@@ -810,7 +920,8 @@ async fn run_stream(
             }),
         ),
     };
-    append_result(&turn, &request, &result).await?;
+    job.release(result_stop_reason(&result));
+    job.record_result(&request, &result).await?;
     output
 }
 
@@ -821,6 +932,7 @@ enum StreamResolution {
         partial: GenerationPartial,
     },
     ConsumerDropped(GenerationPartial),
+    Stopped(ModelJobStopReason),
     Internal {
         code: &'static str,
         message: &'static str,
@@ -829,48 +941,18 @@ enum StreamResolution {
 }
 
 async fn resolve_stream(
-    llm: &Arc<dyn Llm>,
+    job: &JobExecution,
     request: &ModelRequest,
     options: GenerationOptions,
-    cancellation: &Arc<dyn CancellationSignal>,
     deltas: &mpsc::Sender<GenerationDelta>,
 ) -> StreamResolution {
+    let llm = &job.turn.runtime.llm;
     let adapter_guard = AdapterCancellationGuard(CancellationToken::new());
     let mut accumulator = GenerationAccumulator::new(options.limits);
-    if cancellation.is_cancelled() {
-        return StreamResolution::ModelFailed {
-            error: LlmError::Cancelled,
-            partial: GenerationPartial::default(),
-        };
-    }
-    if options.timeout.is_some_and(|timeout| timeout.is_zero()) {
-        return StreamResolution::ModelFailed {
-            error: LlmError::Timeout,
-            partial: GenerationPartial::default(),
-        };
-    }
-    let deadline = match options.timeout {
-        Some(timeout) => match Instant::now().checked_add(timeout) {
-            Some(deadline) => Some(deadline),
-            None => {
-                return StreamResolution::Internal {
-                    code: "model_timeout_out_of_range",
-                    message: "Model timeout exceeds the executor clock range",
-                    partial: GenerationPartial::default(),
-                };
-            }
-        },
-        None => None,
-    };
-    let mut stream = match catch_unwind(AssertUnwindSafe(|| {
-        validation::prepare(&request.input, &llm.capabilities(), ModelCallMode::Stream)?;
-        Ok::<_, LlmError>(llm.generate_stream(
-            request.input.clone(),
-            options,
-            adapter_guard.token(),
-        ))
+    match catch_unwind(AssertUnwindSafe(|| {
+        validation::prepare(&request.input, &llm.capabilities(), ModelCallMode::Stream)
     })) {
-        Ok(Ok(stream)) => stream,
+        Ok(Ok(())) => {}
         Ok(Err(error)) => {
             return StreamResolution::ModelFailed {
                 error,
@@ -880,22 +962,34 @@ async fn resolve_stream(
         Err(_) => {
             return StreamResolution::Internal {
                 code: "model_runtime_panicked",
+                message: "Model runtime preflight panicked",
+                partial: GenerationPartial::default(),
+            };
+        }
+    }
+    // Preparing an owned stream request can be substantial. Keep it before the
+    // final admission/deadline check, so copying cannot extend provider entry.
+    let input = request.input.clone();
+    if let Err(stop) = job.start_provider(Some(deltas)) {
+        return StreamResolution::Stopped(stop);
+    }
+    let mut stream = match catch_unwind(AssertUnwindSafe(|| {
+        llm.generate_stream(input, options, adapter_guard.token())
+    })) {
+        Ok(stream) => stream,
+        Err(_) => {
+            return StreamResolution::Internal {
+                code: "model_runtime_panicked",
                 message: "Model runtime operation panicked",
                 partial: GenerationPartial::default(),
             };
         }
     };
     loop {
-        let wait_deadline = async {
-            match deadline {
-                Some(deadline) => tokio::time::sleep_until(deadline).await,
-                None => std::future::pending::<()>().await,
-            }
-        };
         let item = tokio::select! {
             biased;
-            _ = cancellation.cancelled() => return StreamResolution::ModelFailed { error: LlmError::Cancelled, partial: accumulator.partial().clone() },
-            _ = wait_deadline => return StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() },
+            _ = job.cancellation.cancelled() => return StreamResolution::ModelFailed { error: LlmError::Cancelled, partial: accumulator.partial().clone() },
+            _ = tokio::time::sleep_until(job.deadline) => return StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() },
             _ = deltas.closed() => return StreamResolution::ConsumerDropped(accumulator.partial().clone()),
             item = AssertUnwindSafe(stream.next()).catch_unwind() => item,
         };
@@ -942,16 +1036,10 @@ async fn resolve_stream(
                 partial: accumulator.partial().clone(),
             };
         }
-        let wait_deadline = async {
-            match deadline {
-                Some(deadline) => tokio::time::sleep_until(deadline).await,
-                None => std::future::pending::<()>().await,
-            }
-        };
         let sent = tokio::select! {
             biased;
-            _ = cancellation.cancelled() => return StreamResolution::ModelFailed { error: LlmError::Cancelled, partial: accumulator.partial().clone() },
-            _ = wait_deadline => return StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() },
+            _ = job.cancellation.cancelled() => return StreamResolution::ModelFailed { error: LlmError::Cancelled, partial: accumulator.partial().clone() },
+            _ = tokio::time::sleep_until(job.deadline) => return StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() },
             sent = deltas.send(delta) => sent,
         };
         if sent.is_err() {
@@ -1022,6 +1110,61 @@ fn successful_result(request: &ModelRequest, response: GenerationResponse) -> Mo
         version: ModelRecordVersion::V1,
         call_id: request.call_id.clone(),
         outcome: ModelRecordedOutcome::Succeeded { response },
+    }
+}
+
+fn stopped_result(
+    request: &ModelRequest,
+    reason: ModelJobStopReason,
+) -> (ModelResult, ModelGatewayError) {
+    let partial = GenerationPartial::default();
+    match reason {
+        ModelJobStopReason::QueueTimeout => {
+            let mut result = failed_result(request, &LlmError::Timeout, partial);
+            if let ModelRecordedOutcome::Failed { code, message, .. } = &mut result.outcome {
+                *code = "model_queue_timeout".to_string();
+                *message = "Model operation exceeded its deadline while queued".to_string();
+            }
+            (result, ModelRuntimeError::QueueTimeout.into())
+        }
+        ModelJobStopReason::Timeout => (
+            failed_result(request, &LlmError::Timeout, partial),
+            LlmError::Timeout.into(),
+        ),
+        ModelJobStopReason::Cancelled => (
+            failed_result(request, &LlmError::Cancelled, partial),
+            LlmError::Cancelled.into(),
+        ),
+        ModelJobStopReason::ConsumerDropped => (
+            consumer_dropped_result(request, partial),
+            LlmError::Cancelled.into(),
+        ),
+        ModelJobStopReason::Failed => (
+            internal_result(
+                request,
+                "model_scheduler_state",
+                "Model job lost its execution state",
+            ),
+            ModelGatewayError::Internal {
+                code: "model_scheduler_state".to_string(),
+                message: "Model job lost its execution state".to_string(),
+            },
+        ),
+    }
+}
+
+fn result_stop_reason(result: &ModelResult) -> Option<ModelJobStopReason> {
+    match &result.outcome {
+        ModelRecordedOutcome::Succeeded { .. } => None,
+        ModelRecordedOutcome::Failed { code, category, .. } => {
+            Some(match (code.as_str(), category) {
+                ("model_queue_timeout", _) => ModelJobStopReason::QueueTimeout,
+                ("model_stream_consumer_dropped", _) => ModelJobStopReason::ConsumerDropped,
+                (_, ModelFailureCategory::Timeout) => ModelJobStopReason::Timeout,
+                (_, ModelFailureCategory::Cancelled) => ModelJobStopReason::Cancelled,
+                _ => ModelJobStopReason::Failed,
+            })
+        }
     }
 }
 
@@ -1149,12 +1292,8 @@ impl Drop for AdapterCancellationGuard {
     }
 }
 
-fn effective_timeout(call: Option<Duration>, runtime: Option<Duration>) -> Option<Duration> {
-    match (call, runtime) {
-        (Some(call), Some(runtime)) => Some(call.min(runtime)),
-        (Some(call), None) => Some(call),
-        (None, runtime) => runtime,
-    }
+fn effective_timeout(call: Option<Duration>, runtime: Duration) -> Duration {
+    call.map_or(runtime, |call| call.min(runtime))
 }
 
 struct LlmRuntimeLifecycle {

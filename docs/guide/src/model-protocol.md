@@ -23,7 +23,7 @@ async fn answer(model: &dyn ModelGateway) -> Result<ModelMessage, ModelGatewayEr
 }
 ```
 
-GenerationOptions 提供 max_tokens、timeout 和收集上限 limits。受控运行时保留 admission、宿主取消、超时和收尾语义；单次 timeout 不能放宽运行时默认上限。max_tokens 传给后端，不等于宿主任务预算，也不能替代上下文 token 计数。
+GenerationOptions 提供 max_tokens、timeout 和收集上限 limits。canonical runtime 默认 timeout 为 600 秒；未指定调用 timeout 时继承该有限上限，显式值只能收紧。截止时间从 admission 起计算，排队、请求记录和执行共用额度，清理仍需完成。容量配置、拒绝错误及观察方法见[模型调度与超时](model-scheduling.md)。max_tokens 传给后端，不等于宿主任务预算，也不能替代上下文 token 计数。
 
 GenerationResponse 包含可选文本、完整工具提议、未完成的工具参数、finish_reason 和 usage。TokenUsage 的各字段独立可缺失：None 是未知，Some(0) 才是明确的零；框架不会自动推算缺失的 total_tokens。
 
@@ -58,7 +58,7 @@ async fn collect(model: &dyn ModelGateway) -> Result<GenerationResponse, ModelGa
 
 Finished 只表示推理有了明确终态，不等于动作完整或任务成功。Length、ContentFiltered、Unknown 和其他未支持的结束原因作为诊断响应保留；into_message() 拒绝把它们变成完整 assistant 消息。截断工具参数保存在 incomplete_tool_calls，而不是 tool_calls。
 
-流式 EOF 缺少终态会报错，不自动当作 Stop。取消、超时、协议失败保留已收集的文本和工具片段；消费者丢弃流时，受控运行时会取消驱动并完成结果记录。队列有界，慢消费者也受超时和取消约束。
+流式 EOF 缺少终态会报错，不自动当作 Stop。取消、超时、协议失败保留已收集的文本和工具片段；消费者丢弃流时，受控运行时会取消驱动并完成结果记录。输出 delta 缓冲有界，慢消费者也受超时和取消约束。模型 admission 等待队列另由 ModelSchedulerConfig 控制；已经接受的记录工作不会随消费者离开而丢弃，清理期间仍占总在途容量。
 
 ## 显式选择结构化能力
 
@@ -134,12 +134,14 @@ next.validate_shape()?;
 
 受控 schema 校验禁止从网络或文件获取外部 $ref；schema 内部引用可用。支持的 JSON Schema 方言与关键字由所用验证器决定；宿主仍需确认后端能接受其约束格式，不能把协议传输支持等同于严格约束生成。直接调用原始 Llm 不享有受控 schema、规范记录和宿主策略保证，业务 Agent 应使用 ModelGateway。
 
-GenerationLimits 默认限制每次收集 8 MiB、最多 32 个工具调用。限制同时作用于适配器响应体/流式传输字节、收集内容和规范响应序列化大小，各阶段分别检查，包含的元数据开销可能不同。这是拒绝过大输出的边界，不是整个进程的峰值内存上限；任务预算、上下文 token 预算和模型 admission 队列仍在后续里程碑实现。
+GenerationLimits 默认限制每次收集 8 MiB、最多 32 个工具调用。限制同时作用于适配器响应体/流式传输字节、收集内容和规范响应序列化大小，各阶段分别检查，包含的元数据开销可能不同。模型请求大小、执行槽、等待及总在途数另由[调度配置](model-scheduling.md)限制。这些都不是整个进程的峰值内存保证；共享 Task 预算接入与上下文 token 预算仍在后续里程碑实现。
 
 ## 开发期破坏性替换
 
 未上线阶段直接移除了旧的 complete/complete_stream、ChatMessage、LlmCompletion 和字符串流，没有兼容别名。调用方改用 generate/generate_stream、GenerationRequest、GenerationResponse 和类型化流事件；纯文本功能由 Text 模式覆盖。
 
 规范 ModelRequest/ModelResult 使用显式 version: 1，记录结构化输入、有效调用参数、完整结果或失败片段。不读取旧的无版本模型负载，也不接受未知版本；旧开发日志不会被自动改写或删除。需要旧数据时，应先备份，再由宿主显式决定迁移或用原版本读取。
+
+调度接入后 timeout 字段仍与实际传给 raw adapter 的有效 Duration 一致，外层 runtime 使用 admission 时固定的绝对 deadline，不通过改变 V1 字段含义获得排队约束。早期 canonical 默认无期限；当前默认有限 600 秒，且请求记录等待也消耗执行额度，迁移时需核对宿主配置。
 
 消息、参数和规范事件可能含敏感业务数据。不要把 Debug/序列化内容当作脱敏日志。TaskId/StepId 已用于可选 ActionStep 的模型/工具关联；参考 Agent 的完整循环、任务存储和恢复尚未完成。

@@ -95,7 +95,8 @@ impl<'de> Deserialize<'de> for ModelTimeout {
     }
 }
 
-/// Effective controlled options that were supplied to the raw model adapter.
+/// Effective controlled options supplied unchanged if execution reaches the raw adapter.
+/// A request record alone does not prove that provider execution began.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelRequestOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]

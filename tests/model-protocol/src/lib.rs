@@ -2,12 +2,16 @@
 #![doc = include_str!("../../../docs/guide/src/model-protocol.md")]
 #![doc = include_str!("../../../docs/guide/src/action-step.md")]
 #![doc = include_str!("../../../docs/guide/src/task-budget.md")]
+#![doc = include_str!("../../../docs/guide/src/model-scheduling.md")]
 
 #[cfg(test)]
 mod actions;
 
 #[cfg(test)]
 mod budget;
+
+#[cfg(test)]
+mod scheduler;
 
 #[cfg(test)]
 mod tests {

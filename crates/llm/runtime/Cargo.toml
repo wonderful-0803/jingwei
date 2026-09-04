@@ -16,6 +16,7 @@ description = "Canonical controlled ModelGateway implementation for Jingwei"
 [dependencies]
 jsonschema = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
 jingwei-core = { workspace = true }

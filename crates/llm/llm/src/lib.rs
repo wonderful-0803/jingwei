@@ -18,6 +18,9 @@ use jingwei_core::{CancellationSignal, CapabilityId, SessionEvent, SessionEventK
 use jingwei_session::SessionRuntimeError;
 use tokio_util::sync::CancellationToken;
 
+mod scheduling;
+pub use scheduling::*;
+
 pub use jingwei_core::model::*;
 pub use jingwei_core::{
     ModelCallMode, ModelFailureCategory, ModelRecordedOutcome, ModelRequest, ModelRequestOptions,
@@ -36,6 +39,9 @@ pub struct GenerationOptions {
     /// Host-assigned correlation, recorded but never sent as model input.
     pub context: Option<jingwei_core::DecisionContext>,
     pub max_tokens: Option<u32>,
+    /// Canonical runtime: None inherits its finite timeout; explicit values can only
+    /// tighten it. The deadline starts at admission, before queueing and recording.
+    /// Raw providers still receive this effective duration unchanged.
     pub timeout: Option<Duration>,
     pub limits: GenerationLimits,
 }
@@ -250,6 +256,14 @@ pub enum ModelRuntimeError {
     Stopped,
     #[error("model turn is closed")]
     TurnClosed,
+    #[error("model scheduler is overloaded: {capacity:?}")]
+    Overloaded { capacity: ModelOverloadKind },
+    #[error("model request exceeds {limit_bytes} serialized bytes")]
+    RequestTooLarge { limit_bytes: usize },
+    #[error("model request timed out waiting for an execution slot")]
+    QueueTimeout,
+    #[error("model timeout exceeds the executor clock range")]
+    InvalidTimeout,
     #[error("model runtime internal failure `{code}`: {message}")]
     Internal { code: String, message: String },
 }
@@ -284,6 +298,18 @@ impl fmt::Debug for ModelGatewayError {
             }
             Self::Runtime(ModelRuntimeError::TurnClosed) => {
                 debug.field("kind", &"model_turn_closed")
+            }
+            Self::Runtime(ModelRuntimeError::Overloaded { capacity }) => debug
+                .field("kind", &"model_overloaded")
+                .field("capacity", capacity),
+            Self::Runtime(ModelRuntimeError::RequestTooLarge { limit_bytes }) => debug
+                .field("kind", &"model_request_too_large")
+                .field("limit_bytes", limit_bytes),
+            Self::Runtime(ModelRuntimeError::QueueTimeout) => {
+                debug.field("kind", &"model_queue_timeout")
+            }
+            Self::Runtime(ModelRuntimeError::InvalidTimeout) => {
+                debug.field("kind", &"model_invalid_timeout")
             }
             Self::Runtime(ModelRuntimeError::Internal { code, .. }) => debug
                 .field("kind", &"model_runtime_internal")
@@ -438,6 +464,11 @@ pub trait ModelTurn: Send + Sync {
 pub trait LlmRuntime: Send + Sync {
     fn bind_turn(&self, binding: ModelTurnBinding)
     -> Result<Box<dyn ModelTurn>, ModelRuntimeError>;
+
+    /// Optional in-memory scheduling observation. Custom runtimes may not provide it.
+    fn scheduler_snapshot(&self) -> Option<ModelSchedulerSnapshot> {
+        None
+    }
 }
 
 /// 模型能力 seam。提供方适配器（OpenAI/llama.cpp、本地推理等）实现本 trait。

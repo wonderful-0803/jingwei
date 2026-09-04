@@ -1130,6 +1130,26 @@ fn terminal_fields_for_model_error(error: &ModelGatewayError) -> TerminalErrorFi
         ModelGatewayError::Runtime(ModelRuntimeError::TurnClosed) => {
             ("model_turn_closed", "model turn is closed", false)
         }
+        ModelGatewayError::Runtime(ModelRuntimeError::Overloaded { .. }) => (
+            "model_overloaded",
+            "model scheduler capacity is exhausted",
+            true,
+        ),
+        ModelGatewayError::Runtime(ModelRuntimeError::RequestTooLarge { .. }) => (
+            "model_request_too_large",
+            "model request exceeds the runtime size limit",
+            false,
+        ),
+        ModelGatewayError::Runtime(ModelRuntimeError::QueueTimeout) => (
+            "model_queue_timeout",
+            "model request timed out in the scheduler queue",
+            true,
+        ),
+        ModelGatewayError::Runtime(ModelRuntimeError::InvalidTimeout) => (
+            "model_invalid_timeout",
+            "model timeout exceeds the executor clock range",
+            false,
+        ),
         ModelGatewayError::Runtime(ModelRuntimeError::Internal { .. })
         | ModelGatewayError::Internal { .. } => (
             "model_runtime_internal",

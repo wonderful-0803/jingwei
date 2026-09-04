@@ -9,6 +9,7 @@ v0版本目标是让进程内 Agent 组合清楚、可检查，而不是用隐�
 
 当前工作区正在开发 v0.1。新增统一模型协议、可选 `jingwei-action` 单步动作组件与共享内存预算账本，
 入口见[开发指南](docs/guide/src/index.md)、[单步动作执行](docs/guide/src/action-step.md)与[任务预算](docs/guide/src/task-budget.md)。
+canonical 模型 runtime 已提供共享并发限制、有限等待队列和从准入开始的截止时间，见[模型调度](docs/guide/src/model-scheduling.md)。
 预算账本尚未自动接入 runtime，也尚未实现持久恢复。
 这些开发功能不包含在下方固定的旧提交中；使用新功能须基于同一个实际取得的源码快照，
 不能把当前进度理解为已发布到 crates.io 的完整 v0.1。
@@ -143,6 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `jingwei-openai` | 可选的 OpenAI-compatible 原始 LLM provider，适用于 `/chat/completions` 端点。 |
 | `jingwei-action` | 可选单步动作组件：原生/JSON 协议、CallTool/Final/AskUser、受控执行及证据关联；通过 façade 的 `actions` feature 启用。 |
 | `jingwei-budget` | 轻量共享 Task 预算账本：原子预留、保守结算、跨 run 累计与时间报告；通过 `jingwei::budget` 访问，不负责执行调度或持久恢复。 |
+| `jingwei-llm-runtime` | 完整/流式模型调用共享的有限调度、超时、取消和规范记录屏障；总在途限制覆盖尚未完成的记录和清理。 |
 
 `tokio`、Agent 实现、provider 配置和数据目录都属于宿主应用。若应用需要工具能力，
 应显式添加对应的 tool provider 与 runtime 选择；安装 `jingwei-standard` 本身不会启用工具循环。
