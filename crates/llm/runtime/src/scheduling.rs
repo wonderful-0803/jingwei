@@ -2,6 +2,7 @@
 
 use std::io::{self, Write};
 
+use jingwei_budget::BudgetScope;
 use jingwei_llm::{ModelJobReport, ModelSchedulerSnapshot};
 use serde::Serialize;
 
@@ -16,6 +17,8 @@ pub(super) struct ScheduledJob {
     started_at: Option<Instant>,
     closed_at: Option<Instant>,
     deadline: Instant,
+    budget_deadline: Option<Instant>,
+    budget: BudgetScope,
     timeout: Duration,
     recording: Option<ModelRecordStage>,
     request_recorded: bool,
@@ -28,7 +31,8 @@ impl ScheduledJob {
         call_id: ModelCallId,
         cancellation: Arc<JobCancellation>,
         now: Instant,
-        deadline: Instant,
+        deadlines: (Instant, Option<Instant>),
+        budget: BudgetScope,
         timeout: Duration,
         dispatched: bool,
     ) -> Self {
@@ -44,7 +48,9 @@ impl ScheduledJob {
             slot_at: dispatched.then_some(now),
             started_at: None,
             closed_at: None,
-            deadline,
+            deadline: deadlines.0,
+            budget_deadline: deadlines.1,
+            budget,
             timeout,
             recording: None,
             request_recorded: false,
@@ -75,6 +81,14 @@ impl ScheduledJob {
                 .closed_at
                 .map_or(Duration::ZERO, |at| now.duration_since(at)),
         }
+    }
+
+    fn close(&mut self, now: Instant) {
+        self.phase = ModelJobPhase::Cleaning;
+        self.closed_at = Some(now);
+        let report = self.report(now);
+        self.budget
+            .record_model_timing(report.queue_time, report.execution_time);
     }
 }
 
@@ -109,8 +123,7 @@ impl RuntimeState {
             return;
         }
         let queued = job.phase == ModelJobPhase::Queued;
-        job.phase = ModelJobPhase::Cleaning;
-        job.closed_at = Some(Instant::now());
+        job.close(Instant::now());
         job.cancellation.dispatched.notify_one();
         if queued {
             control.queue.retain(|queued_id| *queued_id != id);
@@ -133,7 +146,12 @@ impl RuntimeState {
             let now = Instant::now();
             // Expired/cancelled queue entries never acquire a slot, even if their
             // driver is still awaiting the original request-recording future.
-            let stop = if job.cancellation.token.is_cancelled() {
+            let stop = if job.budget_deadline.is_some_and(|deadline| now >= deadline) {
+                let _ = job.budget.expire();
+                Some(ModelJobStopReason::Budget)
+            } else if job.budget.check_active().is_err() {
+                Some(ModelJobStopReason::Budget)
+            } else if job.cancellation.token.is_cancelled() {
                 Some(ModelJobStopReason::Cancelled)
             } else if now >= job.deadline {
                 Some(ModelJobStopReason::QueueTimeout)
@@ -141,9 +159,8 @@ impl RuntimeState {
                 None
             };
             if let Some(stop) = stop {
-                job.phase = ModelJobPhase::Cleaning;
                 job.stop_reason = Some(stop);
-                job.closed_at = Some(now);
+                job.close(now);
             } else {
                 job.phase = ModelJobPhase::Preparing;
                 job.slot_at = Some(now);
@@ -158,6 +175,8 @@ pub(super) struct JobExecution {
     pub turn: Arc<TurnState>,
     pub job_id: u64,
     pub deadline: Instant,
+    pub budget_deadline: Option<Instant>,
+    pub budget: Arc<Mutex<JobBudget>>,
     pub cancellation: Arc<dyn CancellationSignal>,
     pub dispatch: Arc<JobCancellation>,
 }
@@ -167,6 +186,15 @@ impl JobExecution {
         &self,
         deltas: Option<&mpsc::Sender<GenerationDelta>>,
     ) -> Option<ModelJobStopReason> {
+        if self
+            .budget_deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            let _ = self.turn.budget.scope.expire();
+        }
+        if self.turn.budget.scope.check_active().is_err() {
+            return Some(ModelJobStopReason::Budget);
+        }
         if let Some(reason) = self
             .turn
             .runtime
@@ -213,6 +241,7 @@ impl JobExecution {
         };
         tokio::select! {
             biased;
+            _ = self.turn.budget.scope.stopped() => ModelJobStopReason::Budget,
             _ = self.cancellation.cancelled() => ModelJobStopReason::Cancelled,
             _ = tokio::time::sleep_until(self.deadline) => self.interruption_now(deltas).unwrap_or(ModelJobStopReason::Timeout),
             _ = closed => ModelJobStopReason::ConsumerDropped,
@@ -250,6 +279,10 @@ impl JobExecution {
             result = &mut append => (result, None),
         };
         self.recording(None, result.is_ok());
+        self.turn
+            .budget
+            .scope
+            .record_evidence(BudgetEventKind::ModelRequest, result.is_ok());
         result?;
         Ok(stop.or_else(|| self.interruption_now(deltas)))
     }
@@ -262,6 +295,10 @@ impl JobExecution {
         self.recording(Some(ModelRecordStage::Result), false);
         let output = append_result(&self.turn, request, result).await;
         self.recording(None, output.is_ok());
+        self.turn
+            .budget
+            .scope
+            .record_evidence(BudgetEventKind::ModelResult, output.is_ok());
         output
     }
 
@@ -314,8 +351,18 @@ impl JobExecution {
         }
         let now = Instant::now();
         if now >= job.deadline {
-            return Err(ModelJobStopReason::Timeout);
+            return Err(if self.budget_deadline.is_some() {
+                let _ = self.turn.budget.scope.expire();
+                ModelJobStopReason::Budget
+            } else {
+                ModelJobStopReason::Timeout
+            });
         }
+        self.budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .start()
+            .map_err(|_| ModelJobStopReason::Budget)?;
         job.phase = ModelJobPhase::Executing;
         job.started_at = Some(now);
         Ok(())
@@ -323,6 +370,38 @@ impl JobExecution {
 
     pub fn release(&self, reason: Option<ModelJobStopReason>) {
         self.turn.runtime.release_execution(self.job_id, reason);
+    }
+
+    pub fn observe_usage(&self, usage: &jingwei_llm::TokenUsage) {
+        self.budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .observe(usage);
+    }
+
+    pub fn settle_budget(&self) -> Result<(), BudgetError> {
+        self.budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settle()
+    }
+
+    pub fn budget_error(&self) -> BudgetError {
+        self.turn
+            .budget
+            .scope
+            .check_active()
+            .err()
+            .unwrap_or(BudgetError::Stopped(BudgetStopReason::InvalidRequest))
+    }
+
+    pub fn deadline_stop(&self) -> ModelJobStopReason {
+        if self.budget_deadline.is_some() {
+            let _ = self.turn.budget.scope.expire();
+            ModelJobStopReason::Budget
+        } else {
+            ModelJobStopReason::Timeout
+        }
     }
 }
 

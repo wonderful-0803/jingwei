@@ -7,15 +7,20 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use jingwei_agent::{
-    AGENT_RUNTIME, Agent, AgentContext, AgentError, AgentEventKind, AgentFuture, AgentRuntime,
-    AgentRuntimeError, AgentTurnCanceller, AgentTurnController, AgentTurnInput, AgentTurnOutput,
-    AgentTurnReport, AgentTurnRequest, CapabilityTurnFailure, DriveFailure, NotAdmittedFailure,
-    SettlementAttempt, TerminalAttempt, TurnClosureStatus, TurnDisposition, TurnFailure,
-    TurnFailureContext, TurnFinally,
+    AGENT_RUNTIME, Agent, AgentBudget, AgentContext, AgentError, AgentEventKind, AgentFuture,
+    AgentRuntime, AgentRuntimeError, AgentTurnCanceller, AgentTurnController, AgentTurnInput,
+    AgentTurnOutput, AgentTurnReport, AgentTurnRequest, CapabilityTurnFailure, DriveFailure,
+    NotAdmittedFailure, SettlementAttempt, TaskRunReportAttempt, TerminalAttempt,
+    TurnClosureStatus, TurnDisposition, TurnFailure, TurnFailureContext, TurnFinally,
+};
+use jingwei_budget::{
+    BudgetClock, BudgetError, BudgetIdentity, BudgetLimits, BudgetReport, BudgetRun, BudgetScope,
+    BudgetStopReason, TaskBudget, TaskRunReport, TaskRunReportVersion, TaskRunStop,
+    TokenBudgetMode,
 };
 use jingwei_core::{
     CancellationFuture, CancellationSignal, DoneStatus, SessionEvent, SessionEventKind, SessionId,
-    TurnId,
+    TaskId, TurnId,
 };
 use jingwei_llm::{
     LLM_RUNTIME, LlmError, LlmRuntime, ModelEventRecorder, ModelFinishMode, ModelGateway,
@@ -47,13 +52,21 @@ const MAX_DETACHED_FAILURES: usize = 16;
 /// Explicit canonical AgentRuntime provider plugin.
 pub struct CanonicalAgentRuntimePlugin {
     max_in_flight: usize,
+    budget_limits: BudgetLimits,
 }
 
 impl CanonicalAgentRuntimePlugin {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             max_in_flight: DEFAULT_MAX_IN_FLIGHT,
+            budget_limits: BudgetLimits::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_budget_limits(mut self, limits: BudgetLimits) -> Self {
+        self.budget_limits = limits;
+        self
     }
 
     #[must_use]
@@ -83,12 +96,14 @@ impl Plugin for CanonicalAgentRuntimePlugin {
     fn mount(&self, ctx: &mut MountContext<'_>) -> Result<(), MountError> {
         ctx.provide_agent_runtime_factory(Arc::new(CanonicalAgentRuntimeFactory {
             max_in_flight: self.max_in_flight,
+            budget_limits: self.budget_limits,
         }))
     }
 }
 
 struct CanonicalAgentRuntimeFactory {
     max_in_flight: usize,
+    budget_limits: BudgetLimits,
 }
 
 impl ServiceFactory<dyn AgentRuntime> for CanonicalAgentRuntimeFactory {
@@ -97,7 +112,16 @@ impl ServiceFactory<dyn AgentRuntime> for CanonicalAgentRuntimeFactory {
         ctx: FactoryContext<'a>,
     ) -> LifecycleFuture<'a, Result<ManagedService<dyn AgentRuntime>, RuntimeError>> {
         let max_in_flight = self.max_in_flight;
+        let budget_limits = self.budget_limits;
         Box::pin(async move {
+            if tokio::time::Instant::now()
+                .checked_add(budget_limits.active_time)
+                .is_none()
+            {
+                return Err(RuntimeError::new(
+                    "Agent budget deadline exceeds executor clock range",
+                ));
+            }
             let sessions = ctx.session_runtime().ok_or_else(|| {
                 RuntimeError::new("canonical AgentRuntime requires the selected SessionRuntime")
             })?;
@@ -125,6 +149,7 @@ impl ServiceFactory<dyn AgentRuntime> for CanonicalAgentRuntimeFactory {
                 hooks,
                 executor,
                 max_in_flight,
+                budget_limits,
             ));
             let runtime: Arc<dyn AgentRuntime> = Arc::new(CanonicalAgentRuntime {
                 state: Arc::clone(&state),
@@ -192,11 +217,16 @@ struct RuntimeState {
     hooks: Vec<HookEntry>,
     executor: Handle,
     max_in_flight: usize,
+    budget_limits: BudgetLimits,
     control: Mutex<Control>,
     drained: Notify,
 }
 
 impl RuntimeState {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "frozen runtime dependencies and host limits are assembled together"
+    )]
     fn new(
         sessions: Arc<dyn SessionRuntime>,
         llm_runtime: Option<Arc<dyn LlmRuntime>>,
@@ -205,6 +235,7 @@ impl RuntimeState {
         hooks: Vec<HookEntry>,
         executor: Handle,
         max_in_flight: usize,
+        budget_limits: BudgetLimits,
     ) -> Self {
         Self {
             sessions,
@@ -214,6 +245,7 @@ impl RuntimeState {
             hooks,
             executor,
             max_in_flight,
+            budget_limits,
             control: Mutex::new(Control::new()),
             drained: Notify::new(),
         }
@@ -364,9 +396,13 @@ impl AgentTurnCanceller for JobCancellation {
 struct TurnController {
     receiver: oneshot::Receiver<Result<AgentTurnReport, AgentRuntimeError>>,
     canceller: Arc<JobCancellation>,
+    budget: BudgetScope,
 }
 
 impl AgentTurnController for TurnController {
+    fn budget_report(&self) -> Option<Result<BudgetReport, BudgetError>> {
+        Some(self.budget.report())
+    }
     fn canceller(&self) -> Arc<dyn AgentTurnCanceller> {
         Arc::clone(&self.canceller) as Arc<dyn AgentTurnCanceller>
     }
@@ -386,6 +422,8 @@ struct DriverRequest {
     user_message: String,
     agent: AgentEntry,
     cancellation: Arc<JobCancellation>,
+    budget_run: Option<BudgetRun>,
+    budget: BudgetScope,
 }
 
 impl AgentRuntime for CanonicalAgentRuntime {
@@ -393,8 +431,8 @@ impl AgentRuntime for CanonicalAgentRuntime {
         &self,
         request: AgentTurnRequest,
     ) -> Result<Box<dyn AgentTurnController>, AgentRuntimeError> {
-        let (session_id, agent_key, user_message) = request.into_parts();
-        let (job_id, agent, cancellation) = {
+        let (session_id, agent_key, user_message, binding) = request.into_budget_parts();
+        let (job_id, agent, cancellation, budget_run) = {
             let mut control = self.state.lock_control();
             if control.lifecycle != RuntimeLifecycleState::Running {
                 return Err(AgentRuntimeError::Stopped);
@@ -407,6 +445,31 @@ impl AgentRuntime for CanonicalAgentRuntime {
             if control.jobs.len() >= self.state.max_in_flight {
                 return Err(AgentRuntimeError::Overloaded);
             }
+            let (task, limits) = match binding {
+                Some((task, limits)) => {
+                    if task.identity().session_id != session_id
+                        || task.identity().agent_key != agent_key
+                    {
+                        return Err(BudgetError::IdentityMismatch.into());
+                    }
+                    (task, limits.tightened_by(self.state.budget_limits))
+                }
+                None => (
+                    TaskBudget::new(
+                        BudgetIdentity {
+                            task_id: TaskId::new(),
+                            session_id: session_id.clone(),
+                            agent_key: agent_key.clone(),
+                        },
+                        self.state.budget_limits,
+                        self.state.budget_limits,
+                        TokenBudgetMode::Soft,
+                        Arc::new(ExecutorBudgetClock(tokio::time::Instant::now())),
+                    )?,
+                    self.state.budget_limits,
+                ),
+            };
+            let run = task.begin_admission(limits)?;
             let job_id = control.next_job_id;
             control.next_job_id = control
                 .next_job_id
@@ -414,8 +477,10 @@ impl AgentRuntime for CanonicalAgentRuntime {
                 .ok_or(AgentRuntimeError::Overloaded)?;
             let cancellation = Arc::new(JobCancellation::new());
             control.jobs.insert(job_id, Arc::clone(&cancellation));
-            (job_id, agent, cancellation)
+            (job_id, agent, cancellation, run)
         };
+        let budget = budget_run.scope();
+        let driver_budget = budget.clone();
 
         let (sender, receiver) = oneshot::channel();
         let state = Arc::clone(&self.state);
@@ -431,6 +496,8 @@ impl AgentRuntime for CanonicalAgentRuntime {
                     user_message,
                     agent,
                     cancellation: driver_cancellation,
+                    budget_run: Some(budget_run),
+                    budget: driver_budget,
                 },
             )
             .await;
@@ -441,6 +508,7 @@ impl AgentRuntime for CanonicalAgentRuntime {
         Ok(Box::new(TurnController {
             receiver,
             canceller: cancellation,
+            budget,
         }))
     }
 }
@@ -571,36 +639,67 @@ impl ModelEventRecorder for SharedTurn {
 
 async fn drive_turn(
     state: Arc<RuntimeState>,
-    request: DriverRequest,
+    mut request: DriverRequest,
 ) -> Result<AgentTurnReport, AgentRuntimeError> {
+    let mut run = request
+        .budget_run
+        .take()
+        .expect("owned run transferred at admission");
+    let admission_started = tokio::time::Instant::now();
     let mut admission = state.sessions.begin_turn(&request.session_id);
-    let session_turn = tokio::select! {
+    let admitted = tokio::select! {
         biased;
+        error = wait_budget_stop(&request.budget) => Err(NotAdmittedFailure::Budget { error, report: Box::new(request.budget.report()?) }),
         _ = request.cancellation.token.cancelled() => {
-            return Err(AgentRuntimeError::NotAdmitted(
-                request.cancellation.not_admitted_failure(),
-            ));
+            Err(request.cancellation.not_admitted_failure())
         }
         result = &mut admission => {
-            result.map_err(|error| {
-                AgentRuntimeError::NotAdmitted(NotAdmittedFailure::Session(error))
-            })?
+            result.map_err(NotAdmittedFailure::Session)
         }
     };
     drop(admission);
+    request
+        .budget
+        .record_session_wait(admission_started.elapsed());
+    let session_turn = match admitted {
+        Ok(turn) => turn,
+        Err(mut error) => {
+            let report = run.finish()?;
+            if let NotAdmittedFailure::Budget { report: prior, .. } = &mut error {
+                **prior = report;
+            }
+            return Err(AgentRuntimeError::NotAdmitted(error));
+        }
+    };
 
     let session_id = session_turn.admission().session_id().clone();
     let turn_id = session_turn.admission().turn_id().clone();
+    let admission_matches =
+        session_id == request.session_id && session_id == request.budget.identity().session_id;
+    if admission_matches {
+        run.bind_turn(turn_id.clone())?;
+    } else {
+        // Keep the delivered lease owned for Error/settle, but do not bind the
+        // Task to this foreign identity or send the user message to that Session.
+        request
+            .budget
+            .stop_with(BudgetStopReason::IdentityMismatch)?;
+    }
     let history = session_turn.admission().history();
     let shared_turn = Arc::new(SharedTurn::new(session_turn));
 
     run_start_hooks(&state.hooks, &session_id, &turn_id);
 
-    let start_result = shared_turn
-        .append_kind(SessionEventKind::UserMessage {
-            text: request.user_message.clone(),
-        })
-        .await;
+    let start_result = if admission_matches {
+        shared_turn
+            .append_kind(SessionEventKind::UserMessage {
+                text: request.user_message.clone(),
+            })
+            .await
+            .map(Some)
+    } else {
+        Ok(None)
+    };
     let partial_text = Mutex::new(String::new());
     let cancellation_signal: Arc<dyn CancellationSignal> =
         Arc::new(TokenCancellationSignal(request.cancellation.token.clone()));
@@ -608,13 +707,18 @@ async fn drive_turn(
     let mut tool_turn: Option<Box<dyn ToolTurn>> = None;
     let mut resolved = match start_result {
         Err(error) => ResolvedIntent::start_envelope_failed(error),
+        Ok(_) if request.budget.check_active().is_err() => ResolvedIntent::agent_failed(
+            AgentError::Budget(request.budget.check_active().unwrap_err()),
+            String::new(),
+        ),
         Ok(_) if request.cancellation.token.is_cancelled() => {
             ResolvedIntent::cancelled(String::new())
         }
         Ok(_) => {
             let model_binding_failure = if request.agent.model_allowed {
                 let recorder: Arc<dyn ModelEventRecorder> = shared_turn.clone();
-                let binding = ModelTurnBinding::new(Arc::clone(&cancellation_signal), recorder);
+                let binding = ModelTurnBinding::new(Arc::clone(&cancellation_signal), recorder)
+                    .with_budget(request.budget.clone());
                 let bound = state
                     .llm_runtime
                     .as_ref()
@@ -640,7 +744,8 @@ async fn drive_turn(
                     jingwei_tool::ToolCaller::new(request.agent.owner.as_str()),
                     Arc::clone(&cancellation_signal),
                     recorder,
-                );
+                )
+                .with_budget(request.budget.clone());
                 let bound = state
                     .tool_runtime
                     .as_ref()
@@ -669,6 +774,7 @@ async fn drive_turn(
                     tools: tool_turn.as_ref().map(|turn| turn.gateway()),
                     cancellation: cancellation_signal.as_ref(),
                     partial_text: &partial_text,
+                    budget: &request.budget,
                 };
                 run_agent_body(&request, &session_id, &turn_id, history.as_ref(), &context).await
             }
@@ -686,6 +792,10 @@ async fn drive_turn(
         )
     {
         resolved = ResolvedIntent::cancelled(lock_unpoisoned(&partial_text).clone());
+    }
+
+    if let Err(error) = request.budget.check_active() {
+        resolved = ResolvedIntent::agent_failed(AgentError::Budget(error), resolved.final_text);
     }
 
     let mut model_failure: Option<ModelTurnFailure> = None;
@@ -734,8 +844,93 @@ async fn drive_turn(
         resolved = ResolvedIntent::capability_closure_failed(failure, resolved.final_text);
     }
 
+    if let Err(error) = request.budget.check_active()
+        && matches!(
+            resolved.disposition,
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Cancelled
+        )
+    {
+        resolved = ResolvedIntent::agent_failed(AgentError::Budget(error), resolved.final_text);
+    }
+    request.budget.begin_cleanup()?;
+    let finished_budget = match run.prepare_report() {
+        Ok(report) => report,
+        Err(error) => {
+            resolved = ResolvedIntent::agent_failed(AgentError::Budget(error), resolved.final_text);
+            request.budget.report()?
+        }
+    };
+    let stop = if let Some(reason) = finished_budget
+        .stop
+        .or_else(|| finished_budget.run.as_ref().and_then(|r| r.stop))
+    {
+        TaskRunStop::Budget(reason)
+    } else {
+        match resolved.disposition {
+            TurnDisposition::Completed => TaskRunStop::Completed,
+            TurnDisposition::WaitingForInput => TaskRunStop::WaitingForInput,
+            TurnDisposition::Cancelled => match request.cancellation.reason() {
+                CancelReason::RuntimeStopping => TaskRunStop::RuntimeStopping,
+                _ => TaskRunStop::CallerCancelled,
+            },
+            TurnDisposition::Failed => TaskRunStop::Failed,
+        }
+    };
+    let budget_report = TaskRunReport {
+        version: TaskRunReportVersion::V1,
+        capabilities_drained: finished_budget.pending.is_empty(),
+        budget: finished_budget,
+        stop,
+    };
+    let report_attempt = if !admission_matches {
+        TaskRunReportAttempt::Rejected {
+            report: budget_report.clone(),
+            error: BudgetError::IdentityMismatch,
+        }
+    } else {
+        let kind = SessionEventKind::TaskRunReport {
+            report: Box::new(budget_report.clone()),
+        };
+        match shared_turn.append_kind(kind.clone()).await {
+            Ok(event)
+                if event.session_id == session_id
+                    && event.turn_id == turn_id
+                    && event.kind == kind =>
+            {
+                TaskRunReportAttempt::Committed {
+                    report: budget_report.clone(),
+                    event,
+                }
+            }
+            Ok(event) => TaskRunReportAttempt::Invalid {
+                report: budget_report.clone(),
+                event,
+            },
+            Err(source) => TaskRunReportAttempt::Failed {
+                report: budget_report.clone(),
+                source,
+            },
+        }
+    };
+    if !matches!(&report_attempt, TaskRunReportAttempt::Committed { .. }) {
+        resolved.disposition = TurnDisposition::Failed;
+        resolved.artifact = None;
+        resolved.has_agent_output = false;
+        resolved.drive_failure = Some(DriveFailure::BudgetReport {
+            prior: resolved.drive_failure.take().map(Box::new),
+        });
+        resolved.terminal_error = Some(TerminalErrorFields {
+            code: "task_run_report_recording".into(),
+            message: "canonical task run report could not be confirmed".into(),
+            retryable: false,
+        });
+    }
     let terminal_result = shared_turn.append_kind(resolved.terminal_kind()).await;
     let settlement_result = shared_turn.settle().await;
+    // Retain the Task lease until the final Session persistence barrier has returned.
+    let _ = run.finish();
 
     if let Ok(summary) = &settlement_result
         && (resolved.disposition == TurnDisposition::Failed
@@ -765,14 +960,21 @@ async fn drive_turn(
     };
     let report = match (&terminal_attempt, &settlement_attempt) {
         (TerminalAttempt::Committed(_), SettlementAttempt::Settled(events)) => {
-            Some(AgentTurnReport::new(
+            let report = AgentTurnReport::new(
                 session_id.clone(),
                 turn_id.clone(),
                 resolved.disposition,
                 resolved.final_text.clone(),
                 resolved.artifact.clone(),
                 Arc::clone(events),
-            ))
+            );
+            Some(
+                if matches!(&report_attempt, TaskRunReportAttempt::Committed { .. }) {
+                    report.with_task_run_report(budget_report)
+                } else {
+                    report
+                },
+            )
         }
         _ => None,
     };
@@ -791,7 +993,8 @@ async fn drive_turn(
         resolved.artifact,
         report,
         resolved.drive_failure,
-    );
+    )
+    .with_task_run_report_attempt(report_attempt);
     let failure = TurnFailure::new(context, terminal_attempt, settlement_attempt)
         .expect("canonical AgentRuntime must produce valid total failure evidence");
     Err(AgentRuntimeError::Turn(Box::new(failure)))
@@ -841,6 +1044,9 @@ async fn run_agent_body(
     let polled = AssertUnwindSafe(future).catch_unwind();
     let result = tokio::select! {
         biased;
+        error = wait_budget_stop(&request.budget) => {
+            return ResolvedIntent::agent_failed(AgentError::Budget(error), context.partial_text());
+        }
         _ = request.cancellation.token.cancelled() => {
             return ResolvedIntent::cancelled(context.partial_text());
         }
@@ -867,6 +1073,7 @@ struct TurnContext<'a> {
     tools: Option<&'a dyn ToolGateway>,
     cancellation: &'a dyn CancellationSignal,
     partial_text: &'a Mutex<String>,
+    budget: &'a BudgetScope,
 }
 
 impl TurnContext<'_> {
@@ -876,6 +1083,9 @@ impl TurnContext<'_> {
 }
 
 impl AgentContext for TurnContext<'_> {
+    fn budget(&self) -> Option<&dyn AgentBudget> {
+        Some(self.budget)
+    }
     fn emit(&self, kind: AgentEventKind) -> AgentFuture<'_, Result<(), AgentError>> {
         Box::pin(async move {
             let delta = match &kind {
@@ -1048,6 +1258,11 @@ impl ResolvedIntent {
 
 fn terminal_fields_for_agent_error(error: &AgentError) -> TerminalErrorFields {
     match error {
+        AgentError::Budget(error) => TerminalErrorFields {
+            code: "task_budget_stopped".into(),
+            message: error.to_string(),
+            retryable: false,
+        },
         AgentError::Cancelled => TerminalErrorFields {
             code: "agent_cancelled".to_string(),
             message: "agent cancelled".to_string(),
@@ -1071,6 +1286,11 @@ fn terminal_fields_for_agent_error(error: &AgentError) -> TerminalErrorFields {
 
 fn terminal_fields_for_tool_error(error: &ToolRuntimeError) -> TerminalErrorFields {
     let (code, message, retryable) = match error {
+        ToolRuntimeError::Budget(_) => (
+            "task_budget_stopped",
+            "Tool task budget rejected execution",
+            false,
+        ),
         ToolRuntimeError::Stopped => ("tool_runtime_stopped", "Tool runtime is stopped", false),
         ToolRuntimeError::TurnClosed => ("tool_turn_closed", "Tool turn is closed", false),
         ToolRuntimeError::Overloaded => (
@@ -1104,6 +1324,11 @@ fn terminal_fields_for_tool_error(error: &ToolRuntimeError) -> TerminalErrorFiel
 
 fn terminal_fields_for_model_error(error: &ModelGatewayError) -> TerminalErrorFields {
     let (code, message, retryable) = match error {
+        ModelGatewayError::Runtime(ModelRuntimeError::Budget(_)) => (
+            "task_budget_stopped",
+            "model task budget rejected execution",
+            false,
+        ),
         ModelGatewayError::Model(LlmError::Upstream { status, .. }) => (
             "model_upstream",
             "model upstream request failed",
@@ -1246,5 +1471,27 @@ impl ServiceLifecycle for AgentRuntimeLifecycle {
         _reason: StopReason,
     ) -> LifecycleFuture<'static, Result<(), RuntimeError>> {
         Box::pin(async move { self.state.stop().await })
+    }
+}
+
+struct ExecutorBudgetClock(tokio::time::Instant);
+impl BudgetClock for ExecutorBudgetClock {
+    fn now(&self) -> std::time::Duration {
+        self.0.elapsed()
+    }
+}
+
+async fn wait_budget_stop(scope: &BudgetScope) -> BudgetError {
+    let remaining = match scope.remaining_time() {
+        Ok(duration) => duration,
+        Err(error) => return error,
+    };
+    tokio::select! {
+        biased;
+        error = scope.stopped() => error,
+        _ = tokio::time::sleep(remaining) => {
+            if let Err(error) = scope.expire() { return error; }
+            scope.check_active().err().unwrap_or(BudgetError::Stopped(BudgetStopReason::ActiveTime))
+        }
     }
 }

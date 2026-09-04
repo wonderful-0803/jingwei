@@ -6,16 +6,17 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use futures::{FutureExt, StreamExt};
+use jingwei_budget::{BudgetError, BudgetEventKind, BudgetRequest, BudgetStopReason};
 use jingwei_core::{CancellationFuture, CancellationSignal, CapabilityId, ModelCallId};
 use jingwei_llm::{
     GenerationAccumulator, GenerationDelta, GenerationOptions, GenerationPartial,
     GenerationRequest, GenerationResponse, GenerationStreamEvent, LLM_PROVIDER, LLM_RUNTIME, Llm,
-    LlmError, LlmRuntime, ModelCallMode, ModelClosureFailure, ModelEventRecorder,
-    ModelFailureCategory, ModelFinishMode, ModelGateway, ModelGatewayError, ModelJobPhase,
-    ModelJobStopReason, ModelOverloadKind, ModelProtocolError, ModelRecord, ModelRecordStage,
-    ModelRecordVersion, ModelRecordedOutcome, ModelRequest, ModelRequestOptions, ModelResult,
-    ModelRuntimeError, ModelSchedulerConfig, ModelSchedulerSnapshot, ModelStream, ModelTimeout,
-    ModelTurn, ModelTurnBinding, ModelTurnFailure,
+    LlmError, LlmRuntime, ModelBudgetEstimator, ModelCallMode, ModelClosureFailure,
+    ModelEventRecorder, ModelFailureCategory, ModelFinishMode, ModelGateway, ModelGatewayError,
+    ModelJobPhase, ModelJobStopReason, ModelOverloadKind, ModelProtocolError, ModelRecord,
+    ModelRecordStage, ModelRecordVersion, ModelRecordedOutcome, ModelRequest, ModelRequestOptions,
+    ModelResult, ModelRuntimeError, ModelSchedulerConfig, ModelSchedulerSnapshot, ModelStream,
+    ModelTimeout, ModelTurn, ModelTurnBinding, ModelTurnFailure,
 };
 use jingwei_plugin::{
     FactoryContext, LifecycleFuture, ManagedService, MountContext, MountError, Plugin,
@@ -26,8 +27,10 @@ use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+mod budget;
 mod scheduling;
 mod validation;
+use budget::{JobBudget, SoftModelBudgetEstimator, TurnBudget, request_estimate};
 use scheduling::{JobExecution, ScheduledJob, validate_request_size};
 
 const RAW_LLM_DEPENDENCY: &[CapabilityId] = &[LLM_PROVIDER];
@@ -38,6 +41,7 @@ const MAX_LIFECYCLE_FAILURES: usize = 32;
 pub struct CanonicalLlmRuntimePlugin {
     default_timeout: Duration,
     scheduler: ModelSchedulerConfig,
+    estimator: Option<Arc<dyn ModelBudgetEstimator>>,
 }
 
 impl CanonicalLlmRuntimePlugin {
@@ -45,6 +49,7 @@ impl CanonicalLlmRuntimePlugin {
         Self {
             default_timeout: Duration::from_secs(600),
             scheduler: ModelSchedulerConfig::new(),
+            estimator: None,
         }
     }
 
@@ -57,6 +62,13 @@ impl CanonicalLlmRuntimePlugin {
     #[must_use]
     pub const fn with_scheduler_config(mut self, config: ModelSchedulerConfig) -> Self {
         self.scheduler = config;
+        self
+    }
+
+    /// Set trusted token admission evidence. The default is explicitly soft.
+    #[must_use]
+    pub fn with_budget_estimator(mut self, estimator: Arc<dyn ModelBudgetEstimator>) -> Self {
+        self.estimator = Some(estimator);
         self
     }
 }
@@ -77,6 +89,7 @@ impl Plugin for CanonicalLlmRuntimePlugin {
         ctx.provide_llm_runtime_factory(Arc::new(CanonicalLlmRuntimeFactory {
             default_timeout: self.default_timeout,
             scheduler: self.scheduler,
+            estimator: self.estimator.clone(),
         }))
     }
 }
@@ -84,6 +97,7 @@ impl Plugin for CanonicalLlmRuntimePlugin {
 struct CanonicalLlmRuntimeFactory {
     default_timeout: Duration,
     scheduler: ModelSchedulerConfig,
+    estimator: Option<Arc<dyn ModelBudgetEstimator>>,
 }
 
 impl ServiceFactory<dyn LlmRuntime> for CanonicalLlmRuntimeFactory {
@@ -115,6 +129,9 @@ impl ServiceFactory<dyn LlmRuntime> for CanonicalLlmRuntimeFactory {
                 llm,
                 self.default_timeout,
                 self.scheduler,
+                self.estimator
+                    .clone()
+                    .unwrap_or_else(|| Arc::new(SoftModelBudgetEstimator)),
                 executor,
             ));
             let runtime: Arc<dyn LlmRuntime> = Arc::new(CanonicalLlmRuntime {
@@ -147,6 +164,7 @@ impl LlmRuntime for CanonicalLlmRuntime {
 
 struct RuntimeState {
     llm: Arc<dyn Llm>,
+    estimator: Arc<dyn ModelBudgetEstimator>,
     default_timeout: Duration,
     scheduler: ModelSchedulerConfig,
     executor: Handle,
@@ -154,15 +172,26 @@ struct RuntimeState {
     drained: Notify,
 }
 
+struct Admission {
+    job_id: u64,
+    cancellation: Arc<JobCancellation>,
+    guard: JobGuard,
+    deadline: Instant,
+    budget_deadline: Option<Instant>,
+    budget: Arc<Mutex<JobBudget>>,
+}
+
 impl RuntimeState {
     fn new(
         llm: Arc<dyn Llm>,
         default_timeout: Duration,
         scheduler: ModelSchedulerConfig,
+        estimator: Arc<dyn ModelBudgetEstimator>,
         executor: Handle,
     ) -> Self {
         Self {
             llm,
+            estimator,
             default_timeout,
             scheduler,
             executor,
@@ -229,10 +258,11 @@ impl RuntimeState {
         self: &Arc<Self>,
         binding: ModelTurnBinding,
     ) -> Result<Box<dyn ModelTurn>, ModelRuntimeError> {
-        let (cancellation, recorder) = binding.into_parts();
+        let (cancellation, recorder, budget) = binding.into_budget_parts();
         if cancellation.is_cancelled() {
             return Err(ModelRuntimeError::TurnClosed);
         }
+        let budget = TurnBudget::new(budget)?;
         let turn_id =
             {
                 let mut control = self.lock_control();
@@ -253,6 +283,7 @@ impl RuntimeState {
             runtime: Arc::clone(self),
             cancellation,
             recorder,
+            budget,
             control: Mutex::new(TurnControl::new()),
             drained: Notify::new(),
         });
@@ -266,7 +297,8 @@ impl RuntimeState {
         turn: &Arc<TurnState>,
         call_id: ModelCallId,
         timeout: Duration,
-    ) -> Result<(u64, Arc<JobCancellation>, JobGuard, Instant), ModelGatewayError> {
+        budget_request: BudgetRequest,
+    ) -> Result<Admission, ModelGatewayError> {
         let mut runtime_control = self.lock_control();
         if runtime_control.lifecycle != LifecycleState::Running {
             return Err(ModelRuntimeError::Stopped.into());
@@ -276,9 +308,23 @@ impl RuntimeState {
             return Err(ModelRuntimeError::TurnClosed.into());
         }
         let now = Instant::now();
-        let deadline = now
+        let call_deadline = now
             .checked_add(timeout)
             .ok_or(ModelRuntimeError::InvalidTimeout)?;
+        let remaining = turn
+            .budget
+            .scope
+            .remaining_time()
+            .map_err(ModelRuntimeError::Budget)?;
+        let budget_deadline = if remaining <= timeout {
+            Some(
+                now.checked_add(remaining)
+                    .ok_or(ModelRuntimeError::InvalidTimeout)?,
+            )
+        } else {
+            None
+        };
+        let deadline = budget_deadline.unwrap_or(call_deadline);
         if runtime_control.jobs.len() >= self.scheduler.max_inflight {
             return Err(ModelRuntimeError::Overloaded {
                 capacity: ModelOverloadKind::InflightFull,
@@ -301,6 +347,20 @@ impl RuntimeState {
                     message: "Model operation ID space is exhausted".to_string(),
                 }
             })?;
+        // Every scheduler rejection has occurred before the ledger charges an attempt.
+        let reservation = turn.budget.scope.reserve(budget_request).map_err(|error| {
+            if matches!(
+                error,
+                BudgetError::UnverifiedTokenBound(_) | BudgetError::ZeroTokenEstimate(_)
+            ) {
+                let _ = turn
+                    .budget
+                    .scope
+                    .stop_with(BudgetStopReason::InvalidRequest);
+            }
+            ModelRuntimeError::Budget(error)
+        })?;
+        let budget = Arc::new(Mutex::new(JobBudget::new(reservation)));
         let cancellation = Arc::new(JobCancellation::new());
         runtime_control.jobs.insert(
             job_id,
@@ -308,7 +368,8 @@ impl RuntimeState {
                 call_id,
                 Arc::clone(&cancellation),
                 now,
-                deadline,
+                (deadline, budget_deadline),
+                turn.budget.scope.clone(),
                 timeout,
                 dispatched,
             ),
@@ -321,12 +382,19 @@ impl RuntimeState {
         turn_control.jobs.insert(job_id, Arc::clone(&cancellation));
         drop(turn_control);
         drop(runtime_control);
-        Ok((
+        Ok(Admission {
             job_id,
             cancellation,
-            JobGuard::new(Arc::clone(self), Arc::clone(turn), job_id),
+            guard: JobGuard::new(
+                Arc::clone(self),
+                Arc::clone(turn),
+                job_id,
+                Arc::clone(&budget),
+            ),
             deadline,
-        ))
+            budget_deadline,
+            budget,
+        })
     }
 
     fn complete_job(
@@ -426,6 +494,7 @@ struct TurnState {
     runtime: Arc<RuntimeState>,
     cancellation: Arc<dyn CancellationSignal>,
     recorder: Arc<dyn ModelEventRecorder>,
+    budget: TurnBudget,
     control: Mutex<TurnControl>,
     drained: Notify,
 }
@@ -458,7 +527,20 @@ impl TurnState {
             let mut control = self.lock_control();
             std::mem::take(&mut control.failures)
         };
+        let owned_budget_result = self.budget.finish_owned();
         self.runtime.acknowledge_turn(self.id);
+        if let Err(error) = owned_budget_result {
+            let mut failures = failure_ledger.failures;
+            failures.push(ModelGatewayError::Internal {
+                code: "model_budget_closure".into(),
+                message: format!("Owned model budget did not settle: {error}"),
+            });
+            return Err(
+                ModelTurnFailure::from_bounded_failures(failures, failure_ledger.omitted)
+                    .expect("budget closure errors are internal failures")
+                    .expect("one failure was inserted"),
+            );
+        }
         if failure_ledger.is_empty() {
             Ok(())
         } else {
@@ -484,11 +566,24 @@ impl TurnState {
             return ready_complete_error(error);
         }
         let call_id = ModelCallId::new();
-        let (job_id, local_cancellation, guard, deadline) =
-            match self.runtime.admit(self, call_id.clone(), timeout) {
-                Ok(admission) => admission,
-                Err(error) => return ready_complete_error(error),
-            };
+        let budget_request = match request_estimate(self, input, &options) {
+            Ok(request) => request,
+            Err(error) => return ready_complete_error(error),
+        };
+        let Admission {
+            job_id,
+            cancellation: local_cancellation,
+            guard,
+            deadline,
+            budget_deadline,
+            budget,
+        } = match self
+            .runtime
+            .admit(self, call_id.clone(), timeout, budget_request)
+        {
+            Ok(admission) => admission,
+            Err(error) => return ready_complete_error(error),
+        };
         let request = model_request(call_id, ModelCallMode::Complete, input.clone(), &options);
         let operation_cancellation: Arc<dyn CancellationSignal> = Arc::new(CombinedCancellation {
             parent: Arc::clone(&self.cancellation),
@@ -498,6 +593,8 @@ impl TurnState {
             turn: Arc::clone(self),
             job_id,
             deadline,
+            budget_deadline,
+            budget,
             cancellation: operation_cancellation,
             dispatch: local_cancellation,
         };
@@ -536,11 +633,24 @@ impl TurnState {
             return ready_stream_error(error);
         }
         let call_id = ModelCallId::new();
-        let (job_id, local_cancellation, guard, deadline) =
-            match self.runtime.admit(self, call_id.clone(), timeout) {
-                Ok(admission) => admission,
-                Err(error) => return ready_stream_error(error),
-            };
+        let budget_request = match request_estimate(self, &input, &options) {
+            Ok(request) => request,
+            Err(error) => return ready_stream_error(error),
+        };
+        let Admission {
+            job_id,
+            cancellation: local_cancellation,
+            guard,
+            deadline,
+            budget_deadline,
+            budget,
+        } = match self
+            .runtime
+            .admit(self, call_id.clone(), timeout, budget_request)
+        {
+            Ok(admission) => admission,
+            Err(error) => return ready_stream_error(error),
+        };
         let request = model_request(call_id, ModelCallMode::Stream, input, &options);
         let operation_cancellation: Arc<dyn CancellationSignal> = Arc::new(CombinedCancellation {
             parent: Arc::clone(&self.cancellation),
@@ -550,6 +660,8 @@ impl TurnState {
             turn: Arc::clone(self),
             job_id,
             deadline,
+            budget_deadline,
+            budget,
             cancellation: operation_cancellation,
             dispatch: local_cancellation,
         };
@@ -593,6 +705,10 @@ struct BoundModelTurn {
 impl ModelTurn for BoundModelTurn {
     fn gateway(&self) -> &dyn ModelGateway {
         &self.gateway
+    }
+
+    fn budget_report(&self) -> Option<Result<jingwei_budget::BudgetReport, BudgetError>> {
+        Some(self.gateway.state.budget.scope.report())
     }
 
     fn finish(
@@ -723,15 +839,22 @@ struct JobGuard {
     runtime: Arc<RuntimeState>,
     turn: Arc<TurnState>,
     job_id: u64,
+    budget: Arc<Mutex<JobBudget>>,
     armed: bool,
 }
 
 impl JobGuard {
-    fn new(runtime: Arc<RuntimeState>, turn: Arc<TurnState>, job_id: u64) -> Self {
+    fn new(
+        runtime: Arc<RuntimeState>,
+        turn: Arc<TurnState>,
+        job_id: u64,
+        budget: Arc<Mutex<JobBudget>>,
+    ) -> Self {
         Self {
             runtime,
             turn,
             job_id,
+            budget,
             armed: true,
         }
     }
@@ -741,6 +864,13 @@ impl JobGuard {
         sender: oneshot::Sender<Result<T, ModelGatewayError>>,
         result: Result<T, ModelGatewayError>,
     ) {
+        // Also covers driver futures dropped before their first poll. Budget
+        // ownership must settle before complete_job makes turn draining ready.
+        let _ = self
+            .budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settle();
         let closure_failure = result
             .as_ref()
             .err()
@@ -758,6 +888,11 @@ impl Drop for JobGuard {
         if !self.armed {
             return;
         }
+        let _ = self
+            .budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settle();
         self.runtime.complete_job(
             &self.turn,
             self.job_id,
@@ -789,7 +924,11 @@ async fn run_complete(
     } else {
         resolve_complete(&job, &request, options).await
     };
-    let (result, output) = match semantic {
+    let observed_partial = match &semantic {
+        CompleteResolution::Succeeded(response) => response_partial(response),
+        _ => GenerationPartial::default(),
+    };
+    let (mut result, mut output) = match semantic {
         CompleteResolution::Succeeded(completion) => (
             successful_result(&request, completion.clone()),
             Ok(completion),
@@ -799,7 +938,7 @@ async fn run_complete(
             Err(error.into()),
         ),
         CompleteResolution::Stopped(reason) => {
-            let (result, error) = stopped_result(&request, reason);
+            let (result, error) = stopped_result(&job, &request, reason);
             (result, Err(error))
         }
         CompleteResolution::Internal { code, message } => (
@@ -810,6 +949,10 @@ async fn run_complete(
             }),
         ),
     };
+    if let Err(error) = job.settle_budget() {
+        result = budget_failed_result(&request, &error, observed_partial);
+        output = Err(ModelRuntimeError::Budget(error).into());
+    }
     job.release(result_stop_reason(&result));
     job.record_result(&request, &result).await?;
     output
@@ -860,12 +1003,14 @@ async fn resolve_complete(
     };
     let output = tokio::select! {
         biased;
+        _ = job.turn.budget.scope.stopped() => return CompleteResolution::Stopped(ModelJobStopReason::Budget),
         _ = job.cancellation.cancelled() => return CompleteResolution::ModelFailed(LlmError::Cancelled),
-        _ = tokio::time::sleep_until(job.deadline) => return CompleteResolution::ModelFailed(LlmError::Timeout),
+        _ = tokio::time::sleep_until(job.deadline) => return CompleteResolution::Stopped(job.deadline_stop()),
         output = raw => output,
     };
     match output {
         Ok(Ok(completion)) => {
+            job.observe_usage(&completion.usage);
             match validation::response(&request.input, &completion, request.options.limits) {
                 Ok(()) => CompleteResolution::Succeeded(completion),
                 Err(error) => CompleteResolution::ModelFailed(error),
@@ -893,8 +1038,12 @@ async fn run_stream(
     } else {
         resolve_stream(&job, &request, options, &deltas).await
     };
-    let (result, output) = match semantic {
-        StreamResolution::Succeeded(response) => {
+    let observed_partial = match &semantic {
+        StreamResolution::Succeeded(_, partial) => partial.clone(),
+        _ => GenerationPartial::default(),
+    };
+    let (mut result, mut output) = match semantic {
+        StreamResolution::Succeeded(response, _) => {
             (successful_result(&request, response.clone()), Ok(response))
         }
         StreamResolution::ModelFailed { error, partial } => {
@@ -905,8 +1054,15 @@ async fn run_stream(
             Err(LlmError::Cancelled.into()),
         ),
         StreamResolution::Stopped(reason) => {
-            let (result, error) = stopped_result(&request, reason);
+            let (result, error) = stopped_result(&job, &request, reason);
             (result, Err(error))
+        }
+        StreamResolution::Budget(partial) => {
+            let error = job.budget_error();
+            (
+                budget_failed_result(&request, &error, partial),
+                Err(ModelRuntimeError::Budget(error).into()),
+            )
         }
         StreamResolution::Internal {
             code,
@@ -920,19 +1076,28 @@ async fn run_stream(
             }),
         ),
     };
+    if let Err(error) = job.settle_budget() {
+        let partial = match &result.outcome {
+            ModelRecordedOutcome::Failed { partial, .. } => partial.clone(),
+            _ => observed_partial,
+        };
+        result = budget_failed_result(&request, &error, partial);
+        output = Err(ModelRuntimeError::Budget(error).into());
+    }
     job.release(result_stop_reason(&result));
     job.record_result(&request, &result).await?;
     output
 }
 
 enum StreamResolution {
-    Succeeded(GenerationResponse),
+    Succeeded(GenerationResponse, GenerationPartial),
     ModelFailed {
         error: LlmError,
         partial: GenerationPartial,
     },
     ConsumerDropped(GenerationPartial),
     Stopped(ModelJobStopReason),
+    Budget(GenerationPartial),
     Internal {
         code: &'static str,
         message: &'static str,
@@ -988,8 +1153,11 @@ async fn resolve_stream(
     loop {
         let item = tokio::select! {
             biased;
+            _ = job.turn.budget.scope.stopped() => return StreamResolution::Budget(accumulator.partial().clone()),
             _ = job.cancellation.cancelled() => return StreamResolution::ModelFailed { error: LlmError::Cancelled, partial: accumulator.partial().clone() },
-            _ = tokio::time::sleep_until(job.deadline) => return StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() },
+            _ = tokio::time::sleep_until(job.deadline) => return if job.deadline_stop() == ModelJobStopReason::Budget {
+                StreamResolution::Budget(accumulator.partial().clone())
+            } else { StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() } },
             _ = deltas.closed() => return StreamResolution::ConsumerDropped(accumulator.partial().clone()),
             item = AssertUnwindSafe(stream.next()).catch_unwind() => item,
         };
@@ -1014,6 +1182,7 @@ async fn resolve_stream(
                 };
             }
             Ok(Some(Ok(GenerationStreamEvent::Finished(response)))) => {
+                job.observe_usage(&response.usage);
                 let validated = accumulator
                     .verify_terminal(&response)
                     .map_err(LlmError::from)
@@ -1021,7 +1190,7 @@ async fn resolve_stream(
                         validation::response(&request.input, &response, request.options.limits)
                     });
                 return match validated {
-                    Ok(()) => StreamResolution::Succeeded(response),
+                    Ok(()) => StreamResolution::Succeeded(response, accumulator.partial().clone()),
                     Err(error) => StreamResolution::ModelFailed {
                         error,
                         partial: accumulator.partial().clone(),
@@ -1038,8 +1207,11 @@ async fn resolve_stream(
         }
         let sent = tokio::select! {
             biased;
+            _ = job.turn.budget.scope.stopped() => return StreamResolution::Budget(accumulator.partial().clone()),
             _ = job.cancellation.cancelled() => return StreamResolution::ModelFailed { error: LlmError::Cancelled, partial: accumulator.partial().clone() },
-            _ = tokio::time::sleep_until(job.deadline) => return StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() },
+            _ = tokio::time::sleep_until(job.deadline) => return if job.deadline_stop() == ModelJobStopReason::Budget {
+                StreamResolution::Budget(accumulator.partial().clone())
+            } else { StreamResolution::ModelFailed { error: LlmError::Timeout, partial: accumulator.partial().clone() } },
             sent = deltas.send(delta) => sent,
         };
         if sent.is_err() {
@@ -1061,7 +1233,13 @@ async fn append_request(turn: &TurnState, request: &ModelRequest) -> Result<(), 
         }
     };
     match AssertUnwindSafe(future).catch_unwind().await {
-        Ok(Ok(_)) => Ok(()),
+        Ok(Ok(event)) => turn.budget.check_event(&event).map_err(|error| {
+            Arc::new(ModelClosureFailure::request_budget_failure(
+                request.clone(),
+                error,
+            ))
+            .into()
+        }),
         Ok(Err(source)) => {
             Err(Arc::new(ModelClosureFailure::request(request.clone(), source)).into())
         }
@@ -1090,7 +1268,14 @@ async fn append_result(
         }
     };
     match AssertUnwindSafe(future).catch_unwind().await {
-        Ok(Ok(_)) => Ok(()),
+        Ok(Ok(event)) => turn.budget.check_event(&event).map_err(|error| {
+            Arc::new(ModelClosureFailure::result_budget_failure(
+                request.clone(),
+                result.clone(),
+                error,
+            ))
+            .into()
+        }),
         Ok(Err(source)) => Err(Arc::new(ModelClosureFailure::result(
             request.clone(),
             result.clone(),
@@ -1113,12 +1298,38 @@ fn successful_result(request: &ModelRequest, response: GenerationResponse) -> Mo
     }
 }
 
+fn response_partial(response: &GenerationResponse) -> GenerationPartial {
+    let mut tool_calls = response.incomplete_tool_calls.clone();
+    tool_calls.extend(response.tool_calls.iter().enumerate().map(|(index, call)| {
+        jingwei_llm::ToolCallFragment {
+            // Complete responses have ordinal calls, while stream partials keep
+            // their original provider indexes and raw argument fragments.
+            index: u32::try_from(index).unwrap_or(u32::MAX),
+            id: call.id.as_str().to_owned(),
+            name: call.name.clone(),
+            arguments: call.arguments.to_string(),
+        }
+    }));
+    GenerationPartial {
+        content: response.content.clone(),
+        tool_calls,
+    }
+}
+
 fn stopped_result(
+    job: &JobExecution,
     request: &ModelRequest,
     reason: ModelJobStopReason,
 ) -> (ModelResult, ModelGatewayError) {
     let partial = GenerationPartial::default();
     match reason {
+        ModelJobStopReason::Budget => {
+            let error = job.budget_error();
+            (
+                budget_failed_result(request, &error, partial),
+                ModelRuntimeError::Budget(error).into(),
+            )
+        }
         ModelJobStopReason::QueueTimeout => {
             let mut result = failed_result(request, &LlmError::Timeout, partial);
             if let ModelRecordedOutcome::Failed { code, message, .. } = &mut result.outcome {
@@ -1158,6 +1369,7 @@ fn result_stop_reason(result: &ModelResult) -> Option<ModelJobStopReason> {
         ModelRecordedOutcome::Succeeded { .. } => None,
         ModelRecordedOutcome::Failed { code, category, .. } => {
             Some(match (code.as_str(), category) {
+                (_, ModelFailureCategory::Budget) => ModelJobStopReason::Budget,
                 ("model_queue_timeout", _) => ModelJobStopReason::QueueTimeout,
                 ("model_stream_consumer_dropped", _) => ModelJobStopReason::ConsumerDropped,
                 (_, ModelFailureCategory::Timeout) => ModelJobStopReason::Timeout,
@@ -1165,6 +1377,25 @@ fn result_stop_reason(result: &ModelResult) -> Option<ModelJobStopReason> {
                 _ => ModelJobStopReason::Failed,
             })
         }
+    }
+}
+
+fn budget_failed_result(
+    request: &ModelRequest,
+    error: &BudgetError,
+    partial: GenerationPartial,
+) -> ModelResult {
+    ModelResult {
+        version: ModelRecordVersion::V1,
+        call_id: request.call_id.clone(),
+        outcome: ModelRecordedOutcome::Failed {
+            category: ModelFailureCategory::Budget,
+            code: "model_budget".into(),
+            message: error.to_string(),
+            retryable: false,
+            upstream_status: None,
+            partial,
+        },
     }
 }
 

@@ -55,6 +55,7 @@ pub enum ModelJobPhase {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModelJobStopReason {
+    Budget,
     Cancelled,
     QueueTimeout,
     Timeout,

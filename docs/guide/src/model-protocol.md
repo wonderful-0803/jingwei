@@ -134,7 +134,7 @@ next.validate_shape()?;
 
 受控 schema 校验禁止从网络或文件获取外部 $ref；schema 内部引用可用。支持的 JSON Schema 方言与关键字由所用验证器决定；宿主仍需确认后端能接受其约束格式，不能把协议传输支持等同于严格约束生成。直接调用原始 Llm 不享有受控 schema、规范记录和宿主策略保证，业务 Agent 应使用 ModelGateway。
 
-GenerationLimits 默认限制每次收集 8 MiB、最多 32 个工具调用。限制同时作用于适配器响应体/流式传输字节、收集内容和规范响应序列化大小，各阶段分别检查，包含的元数据开销可能不同。模型请求大小、执行槽、等待及总在途数另由[调度配置](model-scheduling.md)限制。这些都不是整个进程的峰值内存保证；共享 Task 预算接入与上下文 token 预算仍在后续里程碑实现。
+GenerationLimits 默认限制每次收集 8 MiB、最多 32 个工具调用。限制同时作用于适配器响应体/流式传输字节、收集内容和规范响应序列化大小，各阶段分别检查，包含的元数据开销可能不同。模型请求大小、执行槽、等待及总在途数另由[调度配置](model-scheduling.md)限制。canonical gateway 还消费共享 Task 预算，每次接受计一步和一次模型请求，并预留、结算 token；宿主提供可信估算策略，缺少 usage 不记作零。直接自定义 Agent 调用也走同一路径，详见[任务预算](task-budget.md)。这些限制不是整个进程的峰值内存保证，上下文裁剪仍待实现。
 
 ## 开发期破坏性替换
 
@@ -143,5 +143,7 @@ GenerationLimits 默认限制每次收集 8 MiB、最多 32 个工具调用。�
 规范 ModelRequest/ModelResult 使用显式 version: 1，记录结构化输入、有效调用参数、完整结果或失败片段。不读取旧的无版本模型负载，也不接受未知版本；旧开发日志不会被自动改写或删除。需要旧数据时，应先备份，再由宿主显式决定迁移或用原版本读取。
 
 调度接入后 timeout 字段仍与实际传给 raw adapter 的有效 Duration 一致，外层 runtime 使用 admission 时固定的绝对 deadline，不通过改变 V1 字段含义获得排队约束。早期 canonical 默认无期限；当前默认有限 600 秒，且请求记录等待也消耗执行额度，迁移时需核对宿主配置。
+
+Task 预算截止时间作为另一个外层约束同时生效，未改写 ModelRequest/ModelResult V1。AgentRuntime 的 TaskRunReport 使用独立数字版本 1。显式预算绑定中，options.context 的 TaskId 必须与预算一致，规范记录也要匹配 Session/Turn；不匹配返回预算错误并停止该 run。缺少关联可保持 None，不会从任意 TaskId 自动取得另一任务额度。
 
 消息、参数和规范事件可能含敏感业务数据。不要把 Debug/序列化内容当作脱敏日志。TaskId/StepId 已用于可选 ActionStep 的模型/工具关联；参考 Agent 的完整循环、任务存储和恢复尚未完成。

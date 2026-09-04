@@ -4,8 +4,11 @@
 //! shares [`BudgetScope`] and retains each reservation until it can settle usage.
 //! These handles do not interrupt work or establish durable recovery by themselves.
 
+use futures::task::AtomicWaker;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use jingwei_core::TurnId;
@@ -30,10 +33,12 @@ impl BudgetClock for MonotonicBudgetClock {
     }
 }
 
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum BudgetError {
     #[error("task, session and agent identity must be nonempty")]
     InvalidIdentity,
+    #[error("budget binding identity does not match the request or recorded event")]
+    IdentityMismatch,
     #[error("a task run is already active")]
     RunActive,
     #[error("this run is closed")]
@@ -67,6 +72,7 @@ struct Inner {
     token_mode: TokenBudgetMode,
     clock: Arc<dyn BudgetClock>,
     state: Mutex<State>,
+    waiters: Mutex<Vec<Weak<AtomicWaker>>>,
 }
 
 #[derive(Default)]
@@ -86,6 +92,7 @@ struct State {
 struct RunState {
     id: u64,
     report: BudgetRunReport,
+    cleaning: bool,
 }
 
 /// Host-owned run lease. Dropping an unfinished lease freezes the task.
@@ -132,6 +139,7 @@ impl TaskBudget {
             limits: host_limits.tightened_by(task_limits),
             token_mode,
             clock,
+            waiters: Mutex::new(Vec::new()),
             state: Mutex::new(State {
                 last_clock,
                 ..State::default()
@@ -144,6 +152,23 @@ impl TaskBudget {
         turn_id: TurnId,
         limits: BudgetLimits,
     ) -> Result<BudgetRun, BudgetError> {
+        self.begin_run_inner(Some(turn_id), limits)
+    }
+
+    /// Begin timing before Session admission has assigned a canonical TurnId.
+    pub fn begin_admission(&self, limits: BudgetLimits) -> Result<BudgetRun, BudgetError> {
+        self.begin_run_inner(None, limits)
+    }
+
+    pub fn identity(&self) -> &BudgetIdentity {
+        &self.0.identity
+    }
+
+    fn begin_run_inner(
+        &self,
+        turn_id: Option<TurnId>,
+        limits: BudgetLimits,
+    ) -> Result<BudgetRun, BudgetError> {
         let mut state = self.0.lock()?;
         self.0.tick(&mut state);
         if state.run.is_some() {
@@ -153,8 +178,10 @@ impl TaskBudget {
         let id = state.allocate_id()?;
         state.run = Some(RunState {
             id,
+            cleaning: false,
             report: BudgetRunReport {
                 turn_id,
+                metrics: BudgetExecutionMetrics::default(),
                 limits: self.0.limits.tightened_by(limits),
                 charged: BudgetAmounts::default(),
                 reserved: BudgetAmounts::default(),
@@ -178,6 +205,19 @@ impl TaskBudget {
 }
 
 impl BudgetRun {
+    /// Attach the real Session identity exactly once, before controlled work.
+    pub fn bind_turn(&mut self, turn_id: TurnId) -> Result<(), BudgetError> {
+        let mut state = self.inner.lock()?;
+        self.inner.tick(&mut state);
+        state.check_run(self.id)?;
+        let run = state.run.as_mut().ok_or(BudgetError::RunClosed)?;
+        if run.report.turn_id.is_some() {
+            return Err(BudgetError::IdentityMismatch);
+        }
+        run.report.turn_id = Some(turn_id);
+        Ok(())
+    }
+
     pub fn scope(&self) -> BudgetScope {
         BudgetScope {
             inner: self.inner.clone(),
@@ -185,11 +225,31 @@ impl BudgetRun {
         }
     }
 
+    /// Close consumption and sample a report while retaining the Task lease through
+    /// report/terminal persistence. Call finish after the persistence barrier.
+    pub fn prepare_report(&mut self) -> Result<BudgetReport, BudgetError> {
+        let mut state = self.inner.lock()?;
+        self.inner.tick(&mut state);
+        state.check_run(self.id)?;
+        if !state.pending.is_empty() {
+            return Err(BudgetError::PendingReservations);
+        }
+        state
+            .run
+            .as_mut()
+            .ok_or(BudgetError::RunClosed)?
+            .report
+            .open = false;
+        Ok(self.inner.snapshot(&state))
+    }
+
     /// Retry after settling pending reservations. A stopped run can still finish.
     pub fn finish(&mut self) -> Result<BudgetReport, BudgetError> {
         let mut state = self.inner.lock()?;
         self.inner.tick(&mut state);
-        state.check_run(self.id)?;
+        if state.run.as_ref().is_none_or(|run| run.id != self.id) {
+            return Err(BudgetError::RunClosed);
+        }
         if !state.pending.is_empty() {
             return Err(BudgetError::PendingReservations);
         }
@@ -222,6 +282,137 @@ impl Drop for BudgetRun {
 }
 
 impl BudgetScope {
+    pub fn identity(&self) -> &BudgetIdentity {
+        &self.inner.identity
+    }
+
+    pub fn turn_id(&self) -> Result<Option<TurnId>, BudgetError> {
+        let state = self.inner.lock()?;
+        state.check_run(self.run_id)?;
+        Ok(state
+            .run
+            .as_ref()
+            .ok_or(BudgetError::RunClosed)?
+            .report
+            .turn_id
+            .clone())
+    }
+
+    pub fn check_active(&self) -> Result<(), BudgetError> {
+        let mut state = self.inner.lock()?;
+        self.inner.tick(&mut state);
+        state.check_run(self.run_id)?;
+        state.check_stop()
+    }
+
+    pub fn remaining_time(&self) -> Result<Duration, BudgetError> {
+        let mut state = self.inner.lock()?;
+        self.inner.tick(&mut state);
+        state.check_run(self.run_id)?;
+        state.check_stop()?;
+        let run = &state.run.as_ref().ok_or(BudgetError::RunClosed)?.report;
+        Ok((self.inner.limits.active_time - state.active_time)
+            .min(run.limits.active_time - run.active_time))
+    }
+
+    /// Wake on explicit/accounting stops. Executors also arm remaining_time timers.
+    pub async fn stopped(&self) -> BudgetError {
+        let waiter = Arc::new(AtomicWaker::new());
+        {
+            let mut waiters = self
+                .inner
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            waiters.retain(|entry| entry.strong_count() > 0);
+            waiters.push(Arc::downgrade(&waiter));
+        }
+        futures::future::poll_fn(|cx| {
+            waiter.register(cx.waker());
+            match self.check_active() {
+                Ok(()) => Poll::Pending,
+                Err(error) => Poll::Ready(error),
+            }
+        })
+        .await
+    }
+
+    /// Executor timer evidence. Does not erase any consumed or pending amounts.
+    pub fn expire(&self) -> Result<(), BudgetError> {
+        let mut state = self.inner.lock()?;
+        self.inner.tick(&mut state);
+        state.check_run(self.run_id)?;
+        if state.check_stop().is_ok() {
+            let task_remaining = self.inner.limits.active_time - state.active_time;
+            let run = state.run.as_mut().ok_or(BudgetError::RunClosed)?;
+            if task_remaining <= run.report.limits.active_time - run.report.active_time {
+                state.stop = Some(BudgetStopReason::ActiveTime);
+            } else {
+                run.report.stop = Some(BudgetStopReason::ActiveTime);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn stop_with(&self, reason: BudgetStopReason) -> Result<(), BudgetError> {
+        let mut state = self.inner.lock()?;
+        self.inner.tick(&mut state);
+        state.check_run(self.run_id)?;
+        state
+            .run
+            .as_mut()
+            .ok_or(BudgetError::RunClosed)?
+            .report
+            .stop
+            .get_or_insert(reason);
+        Ok(())
+    }
+
+    /// Enter cleanup after admission has been closed by the owning runtime.
+    pub fn begin_cleanup(&self) -> Result<(), BudgetError> {
+        let mut state = self.inner.lock()?;
+        self.inner.tick(&mut state);
+        state.check_run(self.run_id)?;
+        state.run.as_mut().ok_or(BudgetError::RunClosed)?.cleaning = true;
+        Ok(())
+    }
+
+    pub fn record_session_wait(&self, elapsed: Duration) {
+        self.metrics(|m| m.session_wait = elapsed);
+    }
+    pub fn record_model_timing(&self, queue: Duration, execution: Duration) {
+        self.metrics(|m| {
+            m.model_queue = m.model_queue.saturating_add(queue);
+            m.model_execution = m.model_execution.saturating_add(execution);
+        });
+    }
+    pub fn record_tool_time(&self, execution: Duration) {
+        self.metrics(|m| m.tool_execution = m.tool_execution.saturating_add(execution));
+    }
+    pub fn record_evidence(&self, kind: BudgetEventKind, confirmed: bool) {
+        self.metrics(|m| {
+            let counts = if confirmed {
+                &mut m.confirmed
+            } else {
+                &mut m.unconfirmed
+            };
+            let count = match kind {
+                BudgetEventKind::ModelRequest => &mut counts.model_requests,
+                BudgetEventKind::ModelResult => &mut counts.model_results,
+                BudgetEventKind::ToolCall => &mut counts.tool_calls,
+                BudgetEventKind::ToolResult => &mut counts.tool_results,
+            };
+            *count = count.saturating_add(1);
+        });
+    }
+    fn metrics(&self, update: impl FnOnce(&mut BudgetExecutionMetrics)) {
+        if let Ok(mut state) = self.inner.lock()
+            && let Some(run) = state.run.as_mut().filter(|run| run.id == self.run_id)
+        {
+            update(&mut run.report.metrics);
+        }
+    }
+
     pub fn report(&self) -> Result<BudgetReport, BudgetError> {
         self.inner.report()
     }
@@ -402,8 +593,11 @@ impl Drop for BudgetReservation {
 }
 
 impl Inner {
-    fn lock(&self) -> Result<MutexGuard<'_, State>, BudgetError> {
-        self.state.lock().map_err(|_| BudgetError::Poisoned)
+    fn lock(&self) -> Result<StateGuard<'_>, BudgetError> {
+        Ok(StateGuard {
+            inner: self,
+            guard: Some(self.state.lock().map_err(|_| BudgetError::Poisoned)?),
+        })
     }
 
     fn report(&self) -> Result<BudgetReport, BudgetError> {
@@ -448,12 +642,13 @@ impl Inner {
         else {
             return;
         };
+        let cleaning = run.cleaning;
         let run = &mut run.report;
         let stopped = state.stop.is_some() || run.stop.is_some();
         let task_remaining = self.limits.active_time - state.active_time;
         let run_remaining = run.limits.active_time - run.active_time;
         let remaining = task_remaining.min(run_remaining);
-        let active = if stopped {
+        let active = if stopped || cleaning {
             Duration::ZERO
         } else {
             elapsed.min(remaining)
@@ -462,7 +657,7 @@ impl Inner {
         // Active additions are bounded by their limits; cleanup may overflow independently.
         state.active_time += active;
         run.active_time += active;
-        if !stopped && elapsed >= remaining {
+        if !stopped && !cleaning && elapsed >= remaining {
             if task_remaining <= run_remaining {
                 state.stop = Some(BudgetStopReason::ActiveTime);
             } else {
@@ -481,6 +676,46 @@ impl Inner {
                 state
                     .stop
                     .get_or_insert(BudgetStopReason::AccountingOverflow);
+            }
+        }
+    }
+}
+
+// Publish stops after releasing the ledger lock; never call a waker under it.
+struct StateGuard<'a> {
+    inner: &'a Inner,
+    guard: Option<MutexGuard<'a, State>>,
+}
+impl Deref for StateGuard<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        self.guard.as_ref().unwrap()
+    }
+}
+impl DerefMut for StateGuard<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        self.guard.as_mut().unwrap()
+    }
+}
+impl Drop for StateGuard<'_> {
+    fn drop(&mut self) {
+        let notify = self.stop.is_some()
+            || self
+                .run
+                .as_ref()
+                .is_none_or(|run| run.report.stop.is_some() || !run.report.open);
+        drop(self.guard.take());
+        if notify {
+            let waiters: Vec<_> = self
+                .inner
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .filter_map(Weak::upgrade)
+                .collect();
+            for waiter in waiters {
+                waiter.wake();
             }
         }
     }

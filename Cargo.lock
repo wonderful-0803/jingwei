@@ -724,6 +724,7 @@ name = "jingwei-agent"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "jingwei-budget",
  "jingwei-core",
  "jingwei-llm",
  "jingwei-session",
@@ -739,6 +740,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "jingwei-agent",
+ "jingwei-budget",
  "jingwei-core",
  "jingwei-journal-jsonl",
  "jingwei-llm",
@@ -758,6 +760,7 @@ dependencies = [
 name = "jingwei-budget"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "jingwei-core",
  "thiserror",
 ]
@@ -791,6 +794,7 @@ name = "jingwei-llm"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "jingwei-budget",
  "jingwei-core",
  "jingwei-session",
  "thiserror",
@@ -803,6 +807,7 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "futures",
+ "jingwei-budget",
  "jingwei-core",
  "jingwei-llm",
  "jingwei-plugin",
@@ -913,6 +918,7 @@ dependencies = [
 name = "jingwei-tool"
 version = "0.1.0"
 dependencies = [
+ "jingwei-budget",
  "jingwei-core",
  "jingwei-session",
  "serde",
@@ -927,6 +933,7 @@ dependencies = [
  "futures",
  "jingwei-agent",
  "jingwei-agent-runtime",
+ "jingwei-budget",
  "jingwei-core",
  "jingwei-journal-jsonl",
  "jingwei-plugin",

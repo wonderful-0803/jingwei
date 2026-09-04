@@ -7,6 +7,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use futures::FutureExt;
+use jingwei_budget::{
+    BudgetAmounts, BudgetClock, BudgetError, BudgetEventKind, BudgetIdentity, BudgetLimits,
+    BudgetRequest, BudgetReservation, BudgetRun, BudgetScope, BudgetStopReason, BudgetUsage,
+    TaskBudget, TokenBudgetMode, UsageValue,
+};
 use jingwei_core::{CancellationFuture, CancellationSignal, ToolFailureCategory};
 use jingwei_plugin::{
     FactoryContext, LifecycleFuture, ManagedService, MountContext, MountError, Plugin,
@@ -17,9 +22,9 @@ use jingwei_tool::{
     MAX_TOOL_ARGUMENT_BYTES, MAX_TOOL_NAME_BYTES, TOOL_RUNTIME, Tool, ToolAuthorizationDecision,
     ToolAuthorizationRequest, ToolAuthorizer, ToolBodyRequest, ToolCall, ToolCallOptions,
     ToolClosureFailure, ToolEventRecorder, ToolExecution, ToolFinishMode, ToolFuture, ToolGateway,
-    ToolGuard, ToolGuardRequest, ToolMetadata, ToolPreflightError, ToolRecord, ToolRecordedOutcome,
-    ToolResult, ToolRuntime, ToolRuntimeError, ToolSchema, ToolTurn, ToolTurnBinding,
-    ToolTurnFailure,
+    ToolGuard, ToolGuardRequest, ToolMetadata, ToolPreflightError, ToolRecord, ToolRecordError,
+    ToolRecordedOutcome, ToolResult, ToolRuntime, ToolRuntimeError, ToolSchema, ToolTurn,
+    ToolTurnBinding, ToolTurnFailure,
 };
 use jsonschema::Validator;
 use tokio::runtime::Handle;
@@ -32,6 +37,14 @@ const DEFAULT_TOOL_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_TOOL_DIAGNOSTIC_BYTES: usize = 1024;
 const DEFAULT_MAX_IN_FLIGHT: usize = 1024;
 const MAX_LIFECYCLE_FAILURES: usize = 32;
+
+struct ExecutorBudgetClock(Instant);
+
+impl BudgetClock for ExecutorBudgetClock {
+    fn now(&self) -> Duration {
+        self.0.elapsed()
+    }
+}
 
 /// Explicit canonical ToolRuntime provider plugin.
 #[derive(Clone)]
@@ -401,10 +414,34 @@ impl RuntimeState {
         self: &Arc<Self>,
         binding: ToolTurnBinding,
     ) -> Result<Box<dyn ToolTurn>, ToolRuntimeError> {
-        let (caller, cancellation, recorder) = binding.into_parts();
+        let (caller, cancellation, recorder, supplied_budget) = binding.into_budget_parts();
         if cancellation.is_cancelled() {
             return Err(ToolRuntimeError::TurnClosed);
         }
+        let explicit_budget = supplied_budget.is_some();
+        let (budget, owned_run) = if let Some(budget) = supplied_budget {
+            budget.check_active()?;
+            if budget.turn_id()?.is_none() {
+                let _ = budget.stop_with(BudgetStopReason::IdentityMismatch);
+                return Err(BudgetError::IdentityMismatch.into());
+            }
+            (budget, None)
+        } else {
+            let limits = BudgetLimits::default();
+            let task = TaskBudget::new(
+                BudgetIdentity {
+                    task_id: jingwei_core::TaskId::new(),
+                    session_id: jingwei_core::SessionId::new(),
+                    agent_key: caller.as_str().to_string(),
+                },
+                limits,
+                limits,
+                TokenBudgetMode::Soft,
+                Arc::new(ExecutorBudgetClock(Instant::now())),
+            )?;
+            let run = task.begin_run(jingwei_core::TurnId::new(), limits)?;
+            (run.scope(), Some(run))
+        };
         let turn_id =
             {
                 let mut control = self.lock_control();
@@ -441,6 +478,9 @@ impl RuntimeState {
             caller,
             cancellation,
             recorder,
+            budget,
+            explicit_budget,
+            owned_run: Mutex::new(owned_run),
             granted,
             schemas,
             control: Mutex::new(TurnControl::new()),
@@ -454,7 +494,8 @@ impl RuntimeState {
     fn admit(
         self: &Arc<Self>,
         turn: &Arc<TurnState>,
-    ) -> Result<(u64, Arc<JobCancellation>, JobGuard), ToolRuntimeError> {
+        output_limit: usize,
+    ) -> Result<(u64, Arc<JobCancellation>, JobGuard, SharedJobBudget), ToolRuntimeError> {
         let mut runtime_control = self.lock_control();
         if runtime_control.lifecycle != LifecycleState::Running {
             return Err(ToolRuntimeError::Stopped);
@@ -467,10 +508,19 @@ impl RuntimeState {
             return Err(ToolRuntimeError::Stopped);
         }
         let job_id = runtime_control.next_job_id;
-        runtime_control.next_job_id = runtime_control
+        let next_job_id = runtime_control
             .next_job_id
             .checked_add(1)
             .ok_or(ToolRuntimeError::Overloaded)?;
+        // Capacity and budget acceptance share one synchronous admission boundary.
+        // A rejected runtime admission never consumes a budget attempt.
+        let reservation = turn.budget.reserve(BudgetRequest::new(BudgetAmounts {
+            tool_calls: 1,
+            tool_output_bytes: output_limit as u64,
+            ..BudgetAmounts::default()
+        }))?;
+        let budget = Arc::new(Mutex::new(JobBudget::new(reservation)));
+        runtime_control.next_job_id = next_job_id;
         let cancellation = Arc::new(JobCancellation::new());
         runtime_control
             .jobs
@@ -481,7 +531,13 @@ impl RuntimeState {
         Ok((
             job_id,
             cancellation,
-            JobGuard::new(Arc::clone(self), Arc::clone(turn), job_id),
+            JobGuard::new(
+                Arc::clone(self),
+                Arc::clone(turn),
+                job_id,
+                Arc::clone(&budget),
+            ),
+            budget,
         ))
     }
 
@@ -578,6 +634,9 @@ struct TurnState {
     caller: jingwei_tool::ToolCaller,
     cancellation: Arc<dyn CancellationSignal>,
     recorder: Arc<dyn ToolEventRecorder>,
+    budget: BudgetScope,
+    explicit_budget: bool,
+    owned_run: Mutex<Option<BudgetRun>>,
     granted: Arc<BTreeSet<String>>,
     schemas: Vec<ToolSchema>,
     control: Mutex<TurnControl>,
@@ -608,10 +667,22 @@ impl TurnState {
             }
             notified.await;
         }
-        let failure_ledger = {
+        let mut failure_ledger = {
             let mut control = self.lock_control();
             std::mem::take(&mut control.failures)
         };
+        if let Some(mut run) = self
+            .owned_run
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            && let Err(error) = run.finish()
+        {
+            failure_ledger.record(ToolRuntimeError::Internal {
+                code: "tool_budget_finish_failed".into(),
+                message: error.to_string(),
+            });
+        }
         self.runtime.acknowledge_turn(self.id);
         if failure_ledger.is_empty() {
             Ok(())
@@ -682,10 +753,39 @@ impl TurnState {
         if self.cancellation.is_cancelled() {
             return ready_error(ToolRuntimeError::TurnClosed);
         }
-        let (job_id, local_cancellation, guard) = match self.runtime.admit(self) {
-            Ok(admission) => admission,
-            Err(error) => return ready_error(error),
+        if self.explicit_budget
+            && options
+                .action
+                .as_ref()
+                .is_some_and(|action| action.decision.task_id != self.budget.identity().task_id)
+        {
+            let _ = self.budget.stop_with(BudgetStopReason::IdentityMismatch);
+            return ready_error(BudgetError::IdentityMismatch.into());
+        }
+        let remaining_time = match self.budget.remaining_time() {
+            Ok(remaining) => remaining,
+            Err(error) => return ready_error(error.into()),
         };
+        let admitted_at = Instant::now();
+        let timeout = effective_timeout(
+            self.runtime.default_timeout,
+            self.runtime.tools.get(name),
+            options.timeout,
+        );
+        let deadline = admitted_at
+            .checked_add(timeout)
+            .expect("effective Tool timeout cannot exceed its validated ceiling");
+        let budget_deadline = admitted_at.checked_add(remaining_time);
+        let output_limit = effective_output_limit(
+            self.runtime.max_output_bytes,
+            self.runtime.tools.get(name),
+            options.max_output_bytes,
+        );
+        let (job_id, local_cancellation, guard, budget) =
+            match self.runtime.admit(self, output_limit) {
+                Ok(admission) => admission,
+                Err(error) => return ready_error(error),
+            };
         let call = ToolCall {
             action: options.action.clone(),
             id: format!("toolcall_{}", uuid::Uuid::new_v4()),
@@ -700,7 +800,18 @@ impl TurnState {
             local: local_cancellation.token.clone(),
         });
         let task = async move {
-            let result = run_operation(turn, call, options, operation_cancellation).await;
+            let result = run_operation(
+                turn,
+                call,
+                operation_cancellation,
+                OperationBudget {
+                    budget,
+                    deadline,
+                    budget_deadline,
+                    output_limit,
+                },
+            )
+            .await;
             guard.complete(sender, result);
         };
         if catch_unwind(AssertUnwindSafe(|| executor.spawn(task))).is_err() {
@@ -748,6 +859,10 @@ struct BoundToolTurn {
 }
 
 impl ToolTurn for BoundToolTurn {
+    fn budget_report(&self) -> Option<Result<jingwei_budget::BudgetReport, BudgetError>> {
+        Some(self.gateway.state.budget.report())
+    }
+
     fn gateway(&self) -> &dyn ToolGateway {
         &self.gateway
     }
@@ -825,15 +940,22 @@ struct JobGuard {
     runtime: Arc<RuntimeState>,
     turn: Arc<TurnState>,
     job_id: u64,
+    budget: SharedJobBudget,
     armed: bool,
 }
 
 impl JobGuard {
-    fn new(runtime: Arc<RuntimeState>, turn: Arc<TurnState>, job_id: u64) -> Self {
+    fn new(
+        runtime: Arc<RuntimeState>,
+        turn: Arc<TurnState>,
+        job_id: u64,
+        budget: SharedJobBudget,
+    ) -> Self {
         Self {
             runtime,
             turn,
             job_id,
+            budget,
             armed: true,
         }
     }
@@ -843,6 +965,11 @@ impl JobGuard {
         sender: oneshot::Sender<Result<ToolExecution, ToolRuntimeError>>,
         result: Result<ToolExecution, ToolRuntimeError>,
     ) {
+        let _ = self
+            .budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settle();
         let closure_failure = result
             .as_ref()
             .err()
@@ -860,6 +987,13 @@ impl Drop for JobGuard {
         if !self.armed {
             return;
         }
+        // The guard also owns accounting before the driver future is first polled.
+        // Settle before removing the job so a turn cannot drain with unowned usage.
+        let _ = self
+            .budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settle();
         let failure = ToolRuntimeError::Internal {
             code: "tool_driver_unwound".to_string(),
             message: format!(
@@ -883,35 +1017,32 @@ fn is_closure_failure(error: &ToolRuntimeError) -> bool {
 async fn run_operation(
     turn: Arc<TurnState>,
     call: ToolCall,
-    options: ToolCallOptions,
     cancellation: Arc<dyn CancellationSignal>,
+    mut budget: OperationBudget,
 ) -> Result<ToolExecution, ToolRuntimeError> {
-    let call_event = turn
-        .recorder
-        .append(ToolRecord::Call(call.clone()))
-        .await
-        .map_err(|source| {
-            ToolRuntimeError::Recording(Arc::new(ToolClosureFailure::call(call.clone(), source)))
-        })?;
-    let timeout = effective_timeout(
-        turn.runtime.default_timeout,
-        turn.runtime.tools.get(&call.name),
-        options.timeout,
-    );
-    let deadline = Instant::now()
-        .checked_add(timeout)
-        .expect("effective Tool timeout cannot exceed the validated runtime ceiling");
-    let semantic = resolve_semantic(&turn, &call, options, &cancellation, deadline).await;
+    let call_event = match append_record(&turn, ToolRecord::Call(call.clone())).await {
+        Ok(event) => event,
+        Err(source) => {
+            // No body can start before the confirmed Call barrier. Keep the attempt,
+            // release the unused variable reservation, and retain the recording cause.
+            let _ = budget.finish();
+            return Err(ToolRuntimeError::Recording(Arc::new(
+                ToolClosureFailure::call_error(call, source),
+            )));
+        }
+    };
+    let mut semantic = resolve_semantic(&turn, &call, &cancellation, &mut budget).await;
+    if let Err(error) = budget.finish() {
+        semantic = SemanticResolution::budget(error);
+    }
     let result = ToolResult {
         call_id: call.id.clone(),
         outcome: semantic.outcome,
     };
-    let result_event = turn
-        .recorder
-        .append(ToolRecord::Result(result.clone()))
+    let result_event = append_record(&turn, ToolRecord::Result(result.clone()))
         .await
         .map_err(|source| {
-            ToolRuntimeError::Recording(Arc::new(ToolClosureFailure::result(
+            ToolRuntimeError::Recording(Arc::new(ToolClosureFailure::result_error(
                 call.clone(),
                 result.clone(),
                 source,
@@ -924,11 +1055,122 @@ async fn run_operation(
                 message: bounded_text(&error.to_string(), MAX_TOOL_DIAGNOSTIC_BYTES),
             }
         })?;
-    if semantic.cancelled {
+    if let Some(error) = semantic.budget_error {
+        Err(error.into())
+    } else if semantic.cancelled {
         Err(ToolRuntimeError::cancelled(execution))
     } else {
         Ok(execution)
     }
+}
+
+struct OperationBudget {
+    budget: SharedJobBudget,
+    deadline: Instant,
+    budget_deadline: Option<Instant>,
+    output_limit: usize,
+}
+
+impl OperationBudget {
+    fn start(&self) -> Result<(), BudgetError> {
+        self.budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .start()
+    }
+
+    fn finish(&self) -> Result<(), BudgetError> {
+        self.budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .settle()
+    }
+
+    fn observe_output(&self, bytes: u64) {
+        self.budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .output_bytes = UsageValue::Actual(bytes);
+    }
+}
+
+type SharedJobBudget = Arc<Mutex<JobBudget>>;
+
+struct JobBudget {
+    reservation: Option<BudgetReservation>,
+    started: bool,
+    output_bytes: UsageValue,
+}
+
+impl JobBudget {
+    fn new(reservation: BudgetReservation) -> Self {
+        Self {
+            reservation: Some(reservation),
+            started: false,
+            output_bytes: UsageValue::Unknown,
+        }
+    }
+
+    fn start(&mut self) -> Result<(), BudgetError> {
+        self.reservation
+            .as_mut()
+            .expect("unsettled operation")
+            .mark_started()?;
+        self.started = true;
+        Ok(())
+    }
+
+    fn settle(&mut self) -> Result<(), BudgetError> {
+        let Some(reservation) = self.reservation.take() else {
+            return Ok(());
+        };
+        if self.started {
+            reservation.settle(BudgetUsage {
+                input_tokens: UsageValue::Actual(0),
+                output_tokens: UsageValue::Actual(0),
+                tool_output_bytes: self.output_bytes,
+            })
+        } else {
+            reservation.cancel_before_start()
+        }
+    }
+}
+
+impl Drop for JobBudget {
+    fn drop(&mut self) {
+        let _ = self.settle();
+    }
+}
+
+async fn append_record(
+    turn: &TurnState,
+    record: ToolRecord,
+) -> Result<Arc<jingwei_core::SessionEvent>, ToolRecordError> {
+    let kind = match &record {
+        ToolRecord::Call(_) => BudgetEventKind::ToolCall,
+        ToolRecord::Result(_) => BudgetEventKind::ToolResult,
+    };
+    // Once append has begun, neither deadlines nor cancellation may discard it.
+    let result = match catch_unwind(AssertUnwindSafe(|| turn.recorder.append(record))) {
+        Ok(future) => match AssertUnwindSafe(future).catch_unwind().await {
+            Ok(result) => result.map_err(ToolRecordError::Session),
+            Err(_) => Err(ToolRecordError::RecorderPanicked),
+        },
+        Err(_) => Err(ToolRecordError::RecorderPanicked),
+    };
+    let result = result.and_then(|event| {
+        if turn.explicit_budget
+            && (event.session_id != turn.budget.identity().session_id
+                || turn.budget.turn_id().ok().flatten().as_ref() != Some(&event.turn_id))
+        {
+            let _ = turn.budget.stop_with(BudgetStopReason::IdentityMismatch);
+            Err(ToolRecordError::IdentityMismatch { event })
+        } else {
+            Ok(event)
+        }
+    });
+    turn.budget.record_evidence(kind, result.is_ok());
+    result
 }
 
 fn effective_timeout(
@@ -946,9 +1188,13 @@ fn effective_timeout(
     timeout
 }
 
-fn effective_output_limit(runtime: usize, tool: &ToolEntry, requested: Option<usize>) -> usize {
+fn effective_output_limit(
+    runtime: usize,
+    tool: Option<&Arc<ToolEntry>>,
+    requested: Option<usize>,
+) -> usize {
     let mut limit = runtime;
-    if let Some(tool_limit) = tool.metadata.output_ceiling_bytes() {
+    if let Some(tool_limit) = tool.and_then(|tool| tool.metadata.output_ceiling_bytes()) {
         limit = limit.min(tool_limit);
     }
     if let Some(requested) = requested {
@@ -960,6 +1206,7 @@ fn effective_output_limit(runtime: usize, tool: &ToolEntry, requested: Option<us
 struct SemanticResolution {
     outcome: ToolRecordedOutcome,
     cancelled: bool,
+    budget_error: Option<BudgetError>,
 }
 
 impl SemanticResolution {
@@ -967,6 +1214,7 @@ impl SemanticResolution {
         Self {
             outcome: ToolRecordedOutcome::Succeeded { output },
             cancelled: false,
+            budget_error: None,
         }
     }
 
@@ -984,6 +1232,7 @@ impl SemanticResolution {
                 retryable,
             },
             cancelled: false,
+            budget_error: None,
         }
     }
 
@@ -1006,16 +1255,26 @@ impl SemanticResolution {
             true,
         )
     }
+
+    fn budget(error: BudgetError) -> Self {
+        let mut resolution = Self::failure(
+            ToolFailureCategory::Budget,
+            "tool_budget_stopped",
+            error.to_string(),
+            false,
+        );
+        resolution.budget_error = Some(error);
+        resolution
+    }
 }
 
 async fn resolve_semantic(
     turn: &TurnState,
     call: &ToolCall,
-    options: ToolCallOptions,
     cancellation: &Arc<dyn CancellationSignal>,
-    deadline: Instant,
+    budget: &mut OperationBudget,
 ) -> SemanticResolution {
-    if let Some(interrupted) = interruption(cancellation.as_ref(), deadline) {
+    if let Some(interrupted) = interruption(cancellation.as_ref(), budget, &turn.budget) {
         return interrupted;
     }
     if !turn.granted.contains(&call.name) {
@@ -1056,7 +1315,7 @@ async fn resolve_semantic(
         }
         Ok(Ok(())) => {}
     }
-    if let Some(interrupted) = interruption(cancellation.as_ref(), deadline) {
+    if let Some(interrupted) = interruption(cancellation.as_ref(), budget, &turn.budget) {
         return interrupted;
     }
     for guard in &turn.runtime.guards {
@@ -1076,12 +1335,14 @@ async fn resolve_semantic(
         match await_control(
             AssertUnwindSafe(future).catch_unwind(),
             cancellation.as_ref(),
-            deadline,
+            budget,
+            &turn.budget,
         )
         .await
         {
             Controlled::Cancelled => return SemanticResolution::cancelled(),
             Controlled::TimedOut => return SemanticResolution::timeout(),
+            Controlled::Budget(error) => return SemanticResolution::budget(error),
             Controlled::Ready(Err(_)) => {
                 return SemanticResolution::failure(
                     ToolFailureCategory::GuardFault,
@@ -1136,12 +1397,14 @@ async fn resolve_semantic(
         match await_control(
             AssertUnwindSafe(future).catch_unwind(),
             cancellation.as_ref(),
-            deadline,
+            budget,
+            &turn.budget,
         )
         .await
         {
             Controlled::Cancelled => return SemanticResolution::cancelled(),
             Controlled::TimedOut => return SemanticResolution::timeout(),
+            Controlled::Budget(error) => return SemanticResolution::budget(error),
             Controlled::Ready(Err(_)) => {
                 return SemanticResolution::failure(
                     ToolFailureCategory::ApprovalFault,
@@ -1171,8 +1434,19 @@ async fn resolve_semantic(
             Controlled::Ready(Ok(Ok(ToolAuthorizationDecision::Approved))) => {}
         }
     }
+    if let Some(interrupted) = interruption(cancellation.as_ref(), budget, &turn.budget) {
+        return interrupted;
+    }
+    if let Err(error) = budget.start() {
+        return SemanticResolution::budget(error);
+    }
+    let _timing = ToolExecutionTimer {
+        started: Instant::now(),
+        scope: turn.budget.clone(),
+    };
     let request = ToolBodyRequest::new(&call.id, &call.arguments);
     let adapter_cancellation = CancellationToken::new();
+    let _adapter_guard = ToolAdapterCancellationGuard(adapter_cancellation.clone());
     let body_cancellation: Arc<dyn CancellationSignal> = Arc::new(CombinedCancellation {
         parent: Arc::clone(cancellation),
         local: adapter_cancellation.clone(),
@@ -1194,13 +1468,15 @@ async fn resolve_semantic(
     let controlled = await_control(
         AssertUnwindSafe(future).catch_unwind(),
         cancellation.as_ref(),
-        deadline,
+        budget,
+        &turn.budget,
     )
     .await;
     adapter_cancellation.cancel();
     match controlled {
         Controlled::Cancelled => SemanticResolution::cancelled(),
         Controlled::TimedOut => SemanticResolution::timeout(),
+        Controlled::Budget(error) => SemanticResolution::budget(error),
         Controlled::Ready(Err(_)) => SemanticResolution::failure(
             ToolFailureCategory::BodyPanic,
             "tool_body_panicked",
@@ -1217,12 +1493,8 @@ async fn resolve_semantic(
             )
         }
         Controlled::Ready(Ok(Ok(output))) => {
-            let limit = effective_output_limit(
-                turn.runtime.max_output_bytes,
-                entry,
-                options.max_output_bytes,
-            );
-            if output.len() > limit {
+            budget.observe_output(output.len() as u64);
+            if output.len() > budget.output_limit {
                 SemanticResolution::failure(
                     ToolFailureCategory::OutputLimit,
                     "tool_output_limit",
@@ -1238,11 +1510,19 @@ async fn resolve_semantic(
 
 fn interruption(
     cancellation: &dyn CancellationSignal,
-    deadline: Instant,
+    operation: &OperationBudget,
+    budget: &BudgetScope,
 ) -> Option<SemanticResolution> {
-    if cancellation.is_cancelled() {
+    if let Err(error) = budget.check_active() {
+        Some(SemanticResolution::budget(error))
+    } else if operation
+        .budget_deadline
+        .is_some_and(|deadline| Instant::now() >= deadline)
+    {
+        Some(SemanticResolution::budget(expire_budget(budget)))
+    } else if cancellation.is_cancelled() {
         Some(SemanticResolution::cancelled())
-    } else if Instant::now() >= deadline {
+    } else if Instant::now() >= operation.deadline {
         Some(SemanticResolution::timeout())
     } else {
         None
@@ -1253,21 +1533,58 @@ enum Controlled<T> {
     Ready(T),
     Cancelled,
     TimedOut,
+    Budget(BudgetError),
 }
 
 async fn await_control<F, T>(
     future: F,
     cancellation: &dyn CancellationSignal,
-    deadline: Instant,
+    operation: &OperationBudget,
+    budget: &BudgetScope,
 ) -> Controlled<T>
 where
     F: std::future::Future<Output = T> + Send,
 {
     tokio::select! {
         biased;
+        error = budget.stopped() => Controlled::Budget(error),
+        _ = wait_budget_deadline(operation.budget_deadline) => Controlled::Budget(expire_budget(budget)),
         _ = cancellation.cancelled() => Controlled::Cancelled,
-        _ = tokio::time::sleep_until(deadline) => Controlled::TimedOut,
+        _ = tokio::time::sleep_until(operation.deadline) => Controlled::TimedOut,
         output = future => Controlled::Ready(output),
+    }
+}
+
+async fn wait_budget_deadline(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
+fn expire_budget(budget: &BudgetScope) -> BudgetError {
+    budget
+        .expire()
+        .err()
+        .unwrap_or(BudgetError::Stopped(BudgetStopReason::ActiveTime))
+}
+
+struct ToolExecutionTimer {
+    started: Instant,
+    scope: BudgetScope,
+}
+
+struct ToolAdapterCancellationGuard(CancellationToken);
+
+impl Drop for ToolAdapterCancellationGuard {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+impl Drop for ToolExecutionTimer {
+    fn drop(&mut self) {
+        self.scope.record_tool_time(self.started.elapsed());
     }
 }
 

@@ -102,6 +102,14 @@ impl HarnessBuilder {
 }
 
 impl Harness {
+    /// Start a host-owned request, including its optional shared Task budget.
+    pub fn start_turn_request(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn AgentTurnController>, HarnessError> {
+        Ok(self.inner.agent_runtime.start_turn(request)?)
+    }
+
     pub fn start_turn(
         &self,
         session_id: &SessionId,

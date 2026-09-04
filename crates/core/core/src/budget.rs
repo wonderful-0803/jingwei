@@ -192,11 +192,14 @@ pub enum BudgetStopReason {
     RunAbandoned,
     ClockMovedBackwards,
     AccountingOverflow,
+    IdentityMismatch,
+    InvalidRequest,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BudgetRunReport {
-    pub turn_id: TurnId,
+    pub turn_id: Option<TurnId>,
+    pub metrics: BudgetExecutionMetrics,
     pub limits: BudgetLimits,
     pub charged: BudgetAmounts,
     pub reserved: BudgetAmounts,
@@ -230,4 +233,89 @@ pub struct BudgetReport {
     pub usage: BudgetUsageReport,
     pub run: Option<BudgetRunReport>,
     pub pending: Vec<BudgetPendingReport>,
+}
+
+/// Finite compatibility limits used by canonical runtimes for an unbound turn.
+impl Default for BudgetLimits {
+    fn default() -> Self {
+        Self {
+            resources: BudgetAmounts {
+                steps: 128,
+                model_requests: 128,
+                tool_calls: 128,
+                corrections: 32,
+                input_tokens: 4_000_000,
+                output_tokens: 1_000_000,
+                tool_output_bytes: 16 * 1024 * 1024,
+            },
+            active_time: Duration::from_secs(600),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum BudgetEventKind {
+    ModelRequest,
+    ModelResult,
+    ToolCall,
+    ToolResult,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BudgetEventCounts {
+    pub model_requests: u64,
+    pub model_results: u64,
+    pub tool_calls: u64,
+    pub tool_results: u64,
+}
+
+/// Duration sums for capability work; parallel durations are not task active time.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BudgetExecutionMetrics {
+    pub session_wait: Duration,
+    pub model_queue: Duration,
+    pub model_execution: Duration,
+    pub tool_execution: Duration,
+    pub confirmed: BudgetEventCounts,
+    pub unconfirmed: BudgetEventCounts,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "u16", into = "u16")]
+pub enum TaskRunReportVersion {
+    V1,
+}
+impl TryFrom<u16> for TaskRunReportVersion {
+    type Error = &'static str;
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::V1),
+            _ => Err("unsupported task run report version"),
+        }
+    }
+}
+impl From<TaskRunReportVersion> for u16 {
+    fn from(_: TaskRunReportVersion) -> Self {
+        1
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum TaskRunStop {
+    Completed,
+    WaitingForInput,
+    CallerCancelled,
+    RuntimeStopping,
+    Budget(BudgetStopReason),
+    Failed,
+}
+
+/// Observation after capability drain, before this report and the terminal are written.
+/// This record is not a durable authority or a recovery snapshot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TaskRunReport {
+    pub version: TaskRunReportVersion,
+    pub budget: BudgetReport,
+    pub stop: TaskRunStop,
+    pub capabilities_drained: bool,
 }

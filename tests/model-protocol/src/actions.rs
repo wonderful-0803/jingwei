@@ -157,7 +157,12 @@ impl Agent for TwoStepAgent {
     ) -> AgentFuture<'a, Result<AgentTurnOutput, AgentError>> {
         Box::pin(async move {
             let step = ActionStep::new(self.protocol.clone());
-            let task = TaskId::new();
+            let task = ctx
+                .budget()
+                .expect("canonical task scope")
+                .report()?
+                .identity
+                .task_id;
             let mut messages = vec![ModelMessage::user(input.user_message)];
             // Private bounded driver, not a shipped reference Agent or general loop.
             for _ in 0..2 {
@@ -317,6 +322,25 @@ async fn custom_agent_uses_action_component_through_canonical_turn_runtime() {
                 }
             );
             assert_eq!(reports.lock().unwrap().len(), if ask { 1 } else { 2 });
+            let task_report = report.task_run_report().expect("canonical budget report");
+            let usage = &task_report.budget;
+            assert_eq!(usage.charged.steps, if ask { 1 } else { 2 });
+            assert_eq!(usage.charged.model_requests, if ask { 1 } else { 2 });
+            assert_eq!(usage.charged.tool_calls, u64::from(!ask));
+            assert_eq!(usage.charged.tool_output_bytes, if ask { 0 } else { 5 });
+            assert!(usage.pending.is_empty());
+            assert!(task_report.capabilities_drained);
+            let metrics = &usage.run.as_ref().unwrap().metrics;
+            assert_eq!(
+                metrics.confirmed.model_requests,
+                usage.charged.model_requests
+            );
+            assert_eq!(
+                metrics.confirmed.model_results,
+                usage.charged.model_requests
+            );
+            assert_eq!(metrics.confirmed.tool_calls, usage.charged.tool_calls);
+            assert_eq!(metrics.confirmed.tool_results, usage.charged.tool_calls);
             if ask {
                 let events = log.lock().unwrap();
                 assert!(events.iter().any(|e| matches!(&e.kind, SessionEventKind::Done { status: jingwei_core::DoneStatus::WaitingForInput, artifact: Some(value) } if value["pending_question"] == "请选择目录")));

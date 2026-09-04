@@ -833,3 +833,76 @@ fn task_session_and_agent_identity_must_each_be_nonblank() {
         );
     }
 }
+
+#[test]
+fn admission_counts_wait_and_retains_task_lease_until_report_barrier_finishes() {
+    let clock = Arc::new(FakeClock::default());
+    let budget = task(&clock, limits(10, 60), TokenBudgetMode::Hard);
+    let mut run = budget.begin_admission(limits(10, 60)).unwrap();
+    let scope = run.scope();
+    assert_eq!(scope.turn_id().unwrap(), None);
+    clock.set(Duration::from_secs(3));
+    run.bind_turn(TurnId::from("canonical-turn")).unwrap();
+    assert_eq!(scope.remaining_time().unwrap(), Duration::from_secs(57));
+    assert_eq!(
+        run.bind_turn(TurnId::from("replacement")),
+        Err(BudgetError::IdentityMismatch)
+    );
+    scope.record_session_wait(Duration::from_secs(3));
+    let report = run.prepare_report().unwrap();
+    assert_eq!(
+        report.run.as_ref().unwrap().turn_id,
+        Some(TurnId::from("canonical-turn"))
+    );
+    assert!(!report.run.as_ref().unwrap().open);
+    assert_eq!(scope.check_active(), Err(BudgetError::RunClosed));
+    assert!(matches!(
+        budget.begin_admission(limits(10, 60)),
+        Err(BudgetError::RunActive)
+    ));
+    clock.set(Duration::from_secs(10));
+    run.finish().unwrap();
+    let mut next = budget.begin_admission(limits(10, 60)).unwrap();
+    assert_eq!(
+        next.scope().remaining_time().unwrap(),
+        Duration::from_secs(57)
+    );
+    next.finish().unwrap();
+}
+
+#[tokio::test]
+async fn budget_stop_wakes_all_registered_observers_without_timer_polling() {
+    use futures::FutureExt;
+    let clock = Arc::new(FakeClock::default());
+    let budget = task(&clock, limits(1, 60), TokenBudgetMode::Hard);
+    let mut run = budget.begin_run(TurnId::new(), limits(1, 60)).unwrap();
+    let scope = run.scope();
+    let first = scope.stopped();
+    let second = scope.stopped();
+    tokio::pin!(first, second);
+    assert!(first.as_mut().now_or_never().is_none());
+    assert!(second.as_mut().now_or_never().is_none());
+    scope
+        .reserve(request(BudgetAmounts {
+            steps: 1,
+            ..Default::default()
+        }))
+        .unwrap()
+        .cancel_before_start()
+        .unwrap();
+    assert!(
+        scope
+            .reserve(request(BudgetAmounts {
+                steps: 1,
+                ..Default::default()
+            }))
+            .is_err()
+    );
+    let (a, b) = tokio::join!(first, second);
+    assert_eq!(
+        a,
+        BudgetError::Stopped(BudgetStopReason::ResourceLimit(BudgetResource::Steps))
+    );
+    assert_eq!(a, b);
+    run.finish().unwrap();
+}

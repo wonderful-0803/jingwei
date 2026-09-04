@@ -36,3 +36,7 @@ dev 分支包含独立契约测试和其他开发资料，所有层级的 target
 开发阶段每次接口变更同时维护契约说明、文本功能回归和指南片段。兼容 HTTP 适配器已有文本/工具/JSON Schema 映射与类型化 SSE，使用本机回环 HTTP 验证；真实模型、跨平台、独立 Cargo 包消费及完整指南站的验收仍在后续阶段进行。规范模型记录使用显式版本；旧开发日志不自动迁移或删除。
 
 canonical 模型 runtime 已增加有限调度和默认 600 秒的准入期限。穷尽匹配 `ModelRuntimeError` 的扩展需要处理新增的过载、请求过大、排队超时和无效期限变体。自定义 runtime 可沿用默认返回 None 的 `scheduler_snapshot`，无需提供虚构计数；配置和记录兼容语义见[模型调度](model-scheduling.md)。
+
+共享预算接入新增 `AgentTurnRequest::with_budget`、窄 `AgentContext::budget()`、模型/工具绑定的 `with_budget`，以及 runtime 的类型化 Budget 错误。canonical Agent 默认获得有限临时 Task，显式 Task 可跨 Turn 复用；ActionStep 的 TaskId 应来自当前预算身份。自定义 runtime/context 的可选观察默认 None 不表示预算已经实现，扩展需自行遵循受控预算契约。自定义 runtime 应使用 `into_budget_parts()` 接收并保留传入的作用域；旧 `into_parts()` 不携带预算，不适用于需要受控预算的新实现。
+
+SessionEventKind 新增由 runtime 写入的 TaskRunReport，使用独立数字版本 1；旧模型事件仍为 V1。事件消费者的穷尽匹配需要更新，预算 run 的 TurnId 现为 Option，以表示尚未取得 Session 租约的准入阶段。报告失败会保留类型化尝试证据；这些观察数据不提供恢复授权。详见[任务预算](task-budget.md)，本批检查结果以对应实施记录为准。

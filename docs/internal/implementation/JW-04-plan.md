@@ -2,7 +2,7 @@
 
 日期：2026-09-04。代码基线：`dev` / `70add1f`。
 
-本文件是核对 `70add1f` 源码、PRD、ADR、实施记录及测试后的阶段计划。JW-04-a、JW-04-b 已实施，结果见 [JW-04-a 记录](JW-04-a.md)与 [JW-04-b 记录](JW-04-b.md)；下一批为 JW-04-c。以下现状表保留计划制定时的基线，完整 v0.1 范围继续遵循 [PRD](../../../PRD-v0.1.md)，不因分批实施取消 F6。
+本文件是核对 `70add1f` 源码、PRD、ADR、实施记录及测试后的阶段计划。JW-04-a、JW-04-b、JW-04-c 已实施，结果见 [JW-04-a 记录](JW-04-a.md)、[JW-04-b 记录](JW-04-b.md)和 [JW-04-c 记录](JW-04-c.md)；下一批为 JW-04-d。以下现状表保留计划制定时的基线，完整 v0.1 范围继续遵循 [PRD](../../../PRD-v0.1.md)，不因分批实施取消 F6。
 
 ## 1. 当前进度与证据
 
@@ -76,6 +76,8 @@ JW-04-c 再把共享作用域注入 Agent/Model/Tool 绑定并检查关联身份
 
 关联：F4.1、F4.2、F4.4–F4.9、AT-F4-03。
 
+执行契约见 [ADR-0006](../adr/0006-runtime-budget.md)，本批范围与实际验证记录见 [JW-04-c](JW-04-c.md)。默认有限临时 Task 保持既有入口可用；跨 Turn 累计需宿主显式复用同一 TaskBudget。TaskRunReport 使用独立数字版本 1，prepare_report 关闭消费但持有 Task 租约，直至报告、唯一终态和 Session 结算完成后才释放。
+
 调用链扩展为：宿主任务执行句柄 → AgentRuntime → ModelTurnBinding/ToolTurnBinding → 两类 gateway。ActionStep 复用该作用域；自定义 Agent 使用同一组受控入口。宿主直接使用 LlmRuntime.bind_turn、自定义 AgentRuntime 以及后续摘要/修正组件也必须遵循同一预算绑定契约，不能仅修改 canonical AgentRuntime 的调用点。
 
 主要改动：
@@ -127,4 +129,4 @@ JW-04 完成门槛：
 
 JSONL 每次追加读取全量历史、Session admission 复制历史、会话 mailbox 增长与根目录多写者冲突检测进入压力/恢复工作清单。仅在测量指出具体瓶颈后优化索引或缓存，保持物理顺序和持久化屏障。
 
-当前计划不改变 main、包版本、tag 或正式发布策略。具体工期在每批完成验证后调整；前两批已完成共享预算账本和有界模型调度，下一批统一接入 Agent/Model/Tool 的预算作用域、停止与运行报告。
+当前计划不改变 main、包版本、tag 或正式发布策略。具体工期在每批完成验证后调整；前三批已完成共享预算账本、有界模型调度及 Agent/Model/Tool 预算执行与报告；JW-04-c 的 9 项检查全部通过、共 182 项测试通过。下一批为 JW-04-d 的预算持久化、审计增额与真正跨进程恢复验收。

@@ -14,11 +14,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::Stream;
+use jingwei_budget::{BudgetError, BudgetReport, BudgetScope};
 use jingwei_core::{CancellationSignal, CapabilityId, SessionEvent, SessionEventKind};
 use jingwei_session::SessionRuntimeError;
 use tokio_util::sync::CancellationToken;
 
+mod budget;
 mod scheduling;
+pub use budget::*;
 pub use scheduling::*;
 
 pub use jingwei_core::model::*;
@@ -92,6 +95,7 @@ pub trait ModelEventRecorder: Send + Sync {
 pub struct ModelTurnBinding {
     cancellation: Arc<dyn CancellationSignal>,
     recorder: Arc<dyn ModelEventRecorder>,
+    budget: Option<BudgetScope>,
 }
 
 impl ModelTurnBinding {
@@ -102,6 +106,7 @@ impl ModelTurnBinding {
         Self {
             cancellation,
             recorder,
+            budget: None,
         }
     }
 
@@ -113,8 +118,30 @@ impl ModelTurnBinding {
         Arc::clone(&self.recorder)
     }
 
+    /// Bind the host-owned run shared with Agent and Tool runtimes.
+    #[must_use]
+    pub fn with_budget(mut self, budget: BudgetScope) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
+    pub fn budget(&self) -> Option<&BudgetScope> {
+        self.budget.as_ref()
+    }
+
     pub fn into_parts(self) -> (Arc<dyn CancellationSignal>, Arc<dyn ModelEventRecorder>) {
         (self.cancellation, self.recorder)
+    }
+
+    /// Runtime implementations must use this method to retain budget authority.
+    pub fn into_budget_parts(
+        self,
+    ) -> (
+        Arc<dyn CancellationSignal>,
+        Arc<dyn ModelEventRecorder>,
+        Option<BudgetScope>,
+    ) {
+        (self.cancellation, self.recorder, self.budget)
     }
 }
 
@@ -139,13 +166,15 @@ pub enum ModelRecordFailure {
     Session(#[source] SessionRuntimeError),
     #[error("canonical model recorder panicked")]
     RecorderPanicked,
+    #[error("canonical model event does not match its budget binding")]
+    Budget(#[source] BudgetError),
 }
 
 impl ModelRecordFailure {
     pub fn source_error(&self) -> Option<&SessionRuntimeError> {
         match self {
             Self::Session(source) => Some(source),
-            Self::RecorderPanicked => None,
+            Self::RecorderPanicked | Self::Budget(_) => None,
         }
     }
 }
@@ -173,11 +202,13 @@ impl fmt::Debug for ModelClosureFailure {
                 ModelFailureCategory::Cancelled => "failed_cancelled",
                 ModelFailureCategory::Adapter => "failed_adapter",
                 ModelFailureCategory::Internal => "failed_internal",
+                ModelFailureCategory::Budget => "failed_budget",
             },
         });
         let source = match self.source {
             ModelRecordFailure::Session(_) => "session",
             ModelRecordFailure::RecorderPanicked => "recorder_panicked",
+            ModelRecordFailure::Budget(_) => "budget",
         };
         formatter
             .debug_struct("ModelClosureFailure")
@@ -204,6 +235,18 @@ impl ModelClosureFailure {
 
     pub fn result_recorder_panicked(request: ModelRequest, result: ModelResult) -> Self {
         Self::result_failure(request, result, ModelRecordFailure::RecorderPanicked)
+    }
+
+    pub fn request_budget_failure(request: ModelRequest, source: BudgetError) -> Self {
+        Self::request_failure(request, ModelRecordFailure::Budget(source))
+    }
+
+    pub fn result_budget_failure(
+        request: ModelRequest,
+        result: ModelResult,
+        source: BudgetError,
+    ) -> Self {
+        Self::result_failure(request, result, ModelRecordFailure::Budget(source))
     }
 
     fn request_failure(request: ModelRequest, source: ModelRecordFailure) -> Self {
@@ -252,6 +295,8 @@ impl ModelClosureFailure {
 /// Turn binding/admission failure from the selected model runtime.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ModelRuntimeError {
+    #[error(transparent)]
+    Budget(#[from] BudgetError),
     #[error("model runtime is stopped")]
     Stopped,
     #[error("model turn is closed")]
@@ -285,6 +330,9 @@ impl fmt::Debug for ModelGatewayError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = formatter.debug_struct("ModelGatewayError");
         match self {
+            Self::Runtime(ModelRuntimeError::Budget(error)) => {
+                debug.field("kind", &"model_budget").field("error", error)
+            }
             Self::Model(LlmError::Upstream { status, .. }) => debug
                 .field("kind", &"model_upstream")
                 .field("status", status),
@@ -453,6 +501,11 @@ pub trait ModelGateway: Send + Sync {
 /// Host-owned model scope for one admitted Agent turn.
 pub trait ModelTurn: Send + Sync {
     fn gateway(&self) -> &dyn ModelGateway;
+
+    /// Read-only accounting observation, including a canonical runtime's default scope.
+    fn budget_report(&self) -> Option<Result<BudgetReport, BudgetError>> {
+        None
+    }
 
     fn finish(
         self: Box<Self>,

@@ -127,6 +127,7 @@ pub enum ModelFailureCategory {
     Cancelled,
     Adapter,
     Internal,
+    Budget,
 }
 
 /// Replayable terminal outcome of one canonical model call.
@@ -202,6 +203,7 @@ pub enum ToolFailureCategory {
     BodyFailure,
     BodyPanic,
     OutputLimit,
+    Budget,
 }
 
 /// 一次会话事件。所有字段由 Harness 的回合运行时补齐；
@@ -243,6 +245,9 @@ pub enum SessionEventKind {
     },
     ToolResult {
         result: ToolResult,
+    },
+    TaskRunReport {
+        report: Box<crate::budget::TaskRunReport>,
     },
     StageProgress {
         stage: String,

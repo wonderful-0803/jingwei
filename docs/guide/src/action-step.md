@@ -25,18 +25,19 @@ NativeToolProtocol 会把 `jingwei_ask_user` 加入本次模型候选，但不�
 ```rust
 use std::sync::Arc;
 use jingwei::action::{
-    ActionStep, ActionStepOptions, ActionStepReport, NativeToolProtocol, TaskId,
+    ActionStep, ActionStepOptions, ActionStepReport, NativeToolProtocol,
 };
 use jingwei::agent::AgentContext;
 use jingwei::llm::ModelMessage;
 
 async fn decide_once(
-    task_id: TaskId,
     messages: Vec<ModelMessage>,
     ctx: &dyn AgentContext,
 ) -> Result<ActionStepReport, Box<dyn std::error::Error>> {
     let model = ctx.model().ok_or("Agent 没有模型能力")?;
     let tools = ctx.tools().ok_or("Agent 没有工具能力")?;
+    let task_id = ctx.budget().ok_or("Agent 没有预算作用域")?
+        .report()?.identity.task_id;
     let step = ActionStep::new(Arc::new(NativeToolProtocol));
     Ok(step
         .run(
@@ -51,9 +52,9 @@ async fn decide_once(
 }
 ```
 
-每次 run 都生成新的 StepId；调用方提供可跨多个步骤复用的 TaskId。ActionStep 会覆盖 ActionStepOptions 中的关联字段，避免调用方把另一步的来源误带过来。它不会替调用方保存 Task、关闭 model/tool scopes 或提交 Agent 的最终 Done/Error 事件，这些仍由宿主和 AgentRuntime 所有。
+每次 run 都生成新的 StepId；调用方提供可跨多个步骤复用的 TaskId。canonical Agent 内应从预算作用域取得 TaskId，显式绑定会拒绝其他 Task 的关联。ActionStep 会覆盖 ActionStepOptions 中的关联字段，避免调用方把另一步的来源误带过来。它不会替调用方保存 Task、关闭 model/tool scopes 或提交 Agent 的最终 Done/Error 事件，这些仍由宿主和 AgentRuntime 所有。
 
-ActionStepReport 包含原请求、原响应、类型化动作、结果和 next_messages。next_messages 已闭合原生 assistant/tool 调用组；协议临时加入的 system 指令不会反复累积。应用可以把它交给下一次 ActionStep，但完整参考 Agent 还必须在循环外增加预算、修正次数、无进展检测和完成检查。
+ActionStepReport 包含原请求、原响应、类型化动作、结果和 next_messages。next_messages 已闭合原生 assistant/tool 调用组；协议临时加入的 system 指令不会反复累积。受控模型/工具入口自动消费共享[任务预算](task-budget.md)。应用可以把 next_messages 交给下一次 ActionStep，但完整参考 Agent 还需实现修正策略、无进展检测和完成检查；模型声称 Final 不代表业务成功。
 
 ## 终态与继续条件
 
@@ -107,4 +108,4 @@ JSON-only 数据在传输上使用 user role 只是兼容后端，并不代表�
 
 内部验证覆盖两种协议的工具→结果→最终回答、AskUser、custom Agent 组合、局部 $ref、不可见工具、非法参数、多动作、截断、取消、审批/guard、工具失败、超时以及四个规范记录屏障。测试只使用假模型、内存记录和现有 canonical runtimes；未连接真实模型。
 
-本批仍未提供：动作流式展示、自动修正、官方有限循环、任务预算、上下文裁剪、完成检查、持久待答状态和恢复。应用现在可以安全组合单步，但不要自行写无上限循环来冒充完整参考 Agent。
+当前仍未提供动作流式展示、自动修正策略、官方有限循环、上下文裁剪、完成检查、持久待答状态和恢复。ActionStep 复用 canonical runtimes 的共享任务预算；不要把单步组合和预算停止当作完整参考 Agent 或恢复实现。

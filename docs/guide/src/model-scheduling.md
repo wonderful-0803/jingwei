@@ -2,7 +2,7 @@
 
 canonical LlmRuntime 对完整生成和流式生成使用同一个有限调度器。它限制执行槽、等待作业、包含清理工作的总在途数及请求大小，并从准入时开始计算单次截止时间。同一 runtime 下的不同 Agent 和 Turn 共用这些限制。
 
-这与[任务预算账本](task-budget.md)的累计额度分开：当前调度器不会自动消费 TaskBudget，工具调用和跨 Turn 的累计预算仍待 runtime 集成。
+调度器限制同时占用的容量，[任务预算](task-budget.md)限制累计用量。canonical ModelGateway 同时遵守两者，与 Agent/Tool 共用显式传入的 TaskBudget；无显式绑定时也有有限临时作用域。跨 Turn 累计要求宿主复用同一 Task。
 
 ## 配置调度器
 
@@ -77,6 +77,7 @@ FIFO 表示同步准入时的执行槽分配顺序，不承诺不同 Tokio 线�
 | `RequestTooLarge { limit_bytes }` | 请求序列化规模超过配置，没有接受工作 |
 | `QueueTimeout` | 已接受但在排队阶段耗尽期限；规范失败保留 Timeout 分类及 `model_queue_timeout` code |
 | `InvalidTimeout` | 有效 timeout 无法构成可用截止时间 |
+| `Budget(error)` | Task/run 预算停止、身份或计量错误；保留类型化原因 |
 
 QueueFull 和 InflightFull 是 `ModelOverloadKind` 的变体。非排队阶段的受控超时继续返回 `LlmError::Timeout`。宿主取消、runtime 停止、Turn 已关闭和 Recording 失败仍分别报告，不应统一解释成可自动重试。
 
@@ -92,4 +93,4 @@ provider 返回后，ModelResult 确认前不会交付成功的完整响应或 F
 
 本轮默认行为较早期源码发生变化：canonical runtime 从无默认期限变为默认 600 秒，并开始把排队和请求记录等待纳入同一截止时间。规范 ModelRequest/ModelResult 仍为 version 1，timeout 字段保留 adapter 实参语义，历史日志不会改写。
 
-后续共享 Task 预算将统一接入模型、工具和 Agent，补齐累计用量与停止报告，再实现预算持久化恢复。当前有限模型调度不代表 F4 已整体验收，也不提供完整 Agent 循环或任务恢复。
+Task 活动时长和模型单次期限同时约束工作，预算停止后仍须完成已接受的记录和结算。AgentRuntime 在能力排空后记录独立的 TaskRunReport；这与仅观察在途作业的 scheduler_snapshot 用途不同。预算持久化恢复仍待实现，当前调度与内存累计不代表 F4 已整体验收，也不提供完整 Agent 循环或任务恢复。

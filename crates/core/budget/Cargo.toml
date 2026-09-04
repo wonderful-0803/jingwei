@@ -15,6 +15,7 @@ description = "Shared in-memory Task budget ledger with atomic reservation and c
 
 [dependencies]
 jingwei-core = { workspace = true }
+futures = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

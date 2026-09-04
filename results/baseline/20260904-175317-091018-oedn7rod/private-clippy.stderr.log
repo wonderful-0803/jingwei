@@ -1,0 +1,41 @@
+    Checking jingwei-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/agent)
+    Checking jingwei-plugin v0.1.0 (/home/dd/luxiproject/jingwei/crates/plugin/plugin)
+    Checking jingwei-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/runtime)
+    Checking jingwei-session-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/runtime)
+    Checking jingwei-openai v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/openai)
+    Checking jingwei-tool-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/runtime)
+    Checking jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+    Checking jingwei-agent-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/agent)
+    Checking jingwei-llm-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/runtime)
+    Checking jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+error: this `MutexGuard` is held across an await point
+   --> src/agent_budget.rs:522:9
+    |
+522 |     let events = sessions.events.lock().unwrap();
+    |         ^^^^^^
+    |
+    = help: consider using an async-aware `Mutex` type or ensuring the `MutexGuard` is dropped before calling `await`
+note: these are all the await points this lock is held through
+   --> src/agent_budget.rs:533:25
+    |
+533 |     registry.shutdown().await.unwrap();
+    |                         ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#await_holding_lock
+    = note: `-D clippy::await-holding-lock` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::await_holding_lock)]`
+
+error: this `MutexGuard` is held across an await point
+   --> src/agent_budget.rs:573:13
+    |
+573 |         let events = sessions.events.lock().unwrap();
+    |             ^^^^^^
+    |
+    = help: consider using an async-aware `Mutex` type or ensuring the `MutexGuard` is dropped before calling `await`
+note: these are all the await points this lock is held through
+   --> src/agent_budget.rs:582:29
+    |
+582 |         registry.shutdown().await.unwrap();
+    |                             ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#await_holding_lock
+
+error: could not compile `jingwei-private-protocol-tests` (lib test) due to 2 previous errors

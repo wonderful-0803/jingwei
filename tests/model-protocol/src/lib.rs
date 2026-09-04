@@ -14,6 +14,12 @@ mod budget;
 mod scheduler;
 
 #[cfg(test)]
+mod model_budget;
+
+#[cfg(test)]
+mod tool_budget;
+
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -610,3 +616,6 @@ mod tests {
 
 #[cfg(test)]
 mod unified;
+
+#[cfg(test)]
+mod agent_budget;
