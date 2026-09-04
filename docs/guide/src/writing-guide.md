@@ -45,9 +45,9 @@ npm run docs:preview
 
 网站保留 `.html` 页面地址，不要求服务器配置无扩展名路由重写。VitePress 会检查站内页面链接，不关闭 `ignoreDeadLinks` 来掩盖断链。搜索在浏览器内运行，中文分词使用现代浏览器的 `Intl.Segmenter`，不把查询发送给外部服务。
 
-## 子路径与以后公开发布
+## GitHub Pages 与子路径发布
 
-如果将来发布到 GitHub 项目 Pages 的 `/jingwei/` 子路径，使用：
+本项目的公开指南托管在 [GitHub Pages](https://wonderful-0803.github.io/jingwei/)，使用 `/jingwei/` 子路径。本地构建和预览同一布局：
 
 ```sh
 npm run docs:build:pages
@@ -62,4 +62,12 @@ npm run docs:build -- --base /developer-guide/
 
 部署前选择匹配的 base 并重新构建，不直接复制带错误前缀的 HTML。部署对象仅为选定的静态产物目录，不能上传仓库根目录、`docs/internal`、npm 缓存或 `node_modules`。
 
-本轮只准备构建与预览，不开通托管、修改 GitHub Pages 设置或自动发布。以后确认公开发布位置和版本后，再增加部署步骤。VitePress 的[安装说明](https://vuejs.github.io/vitepress/v1/guide/getting-started)、[配置参考](https://vuejs.github.io/vitepress/v1/reference/site-config)和[部署说明](https://vuejs.github.io/vitepress/v1/guide/deploy)可用于维护站点。
+### 自动发布与回退
+
+指南相关变更推送到本仓库的 `dev` 后，GitHub Actions 先安装锁定依赖，验证 Markdown 渲染，构建根路径和 `/jingwei/` 两种产物，核验页面、资源、锚点与中文搜索。全部成功后，独立部署任务只发布 `/jingwei/` 的静态产物。PR 和 main 只做验证，不部署；fork 也不能触发本站发布。
+
+仓库 Pages 必须使用 GitHub Actions 作为发布源。部署权限只授予独立部署任务，`github-pages` 环境只允许 dev，发布串行执行；不把长期访问令牌写入仓库。线上内容对应触发运行的源码提交，不包含本机未提交的修改。请在 [Actions](https://github.com/wonderful-0803/jingwei/actions/workflows/guide.yml) 中确认发布结果，再访问线上指南。当前工作流尚未加入默认分支，手动运行入口可能不可用，日常通过 dev 的相关 push 发布。
+
+需要回退时，将指南回退作为 dev 的新提交，重新通过验证后发布。指南上线不代表 Cargo 包或完整 v0.1 已正式发布，也不改变源码、测试和文档各自的交付边界。
+
+维护资料：[GitHub Pages 自定义工作流](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)、VitePress 的[安装说明](https://vuejs.github.io/vitepress/v1/guide/getting-started)、[配置参考](https://vuejs.github.io/vitepress/v1/reference/site-config)与[部署说明](https://vuejs.github.io/vitepress/v1/guide/deploy)。

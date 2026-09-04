@@ -42,8 +42,8 @@ npm ci
 npm run docs:dev
 ```
 
-Node.js 版本及静态构建、预览、未来子路径发布说明见[指南站工程](docs/guide/README.md)。
-构建产物不包含内部文档、测试或 Rust 源码；本轮没有自动部署公开站点。
+Node.js 版本及静态构建、预览、发布说明见[指南站工程](docs/guide/README.md)。
+公开指南地址：[Jingwei 开发指南](https://wonderful-0803.github.io/jingwei/)。`dev` 的指南相关更新通过检查后由 GitHub Actions 发布；构建产物不包含内部文档、测试或 Rust 源码，站点展示的是开发版本而非稳定发布版。
 
 Linux 环境可运行 `bash scripts/check-baseline.sh`（需 Python 3），执行两个 workspace 的
 9 项离线检查并保存日志到 `results/baseline`。首次执行前准备指定工具链，并对主 workspace

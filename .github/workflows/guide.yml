@@ -44,10 +44,37 @@ jobs:
         run: npm run docs:build:pages
       - name: Check project-path assets and navigation
         run: node tests/guide-site/check.mjs docs/guide/target/pages /jingwei/
-      - name: Save static guide only (no deployment)
+      - name: Save validated static guide
         uses: actions/upload-artifact@v4
         with:
           name: jingwei-developer-guide
           path: docs/guide/target/pages
           if-no-files-found: error
           retention-days: 14
+      - name: Upload GitHub Pages artifact
+        if: github.repository == 'wonderful-0803/jingwei' && github.ref == 'refs/heads/dev' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/guide/target/pages
+
+  deploy:
+    if: github.repository == 'wonderful-0803/jingwei' && github.ref == 'refs/heads/dev' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy validated guide
+        id: deployment
+        uses: actions/deploy-pages@v4
