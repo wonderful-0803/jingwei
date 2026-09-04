@@ -17,6 +17,12 @@ pub use jingwei_core::budget::*;
 mod checkpoint;
 pub use checkpoint::*;
 
+mod execution;
+pub use execution::*;
+
+mod grant;
+pub use grant::*;
+
 /// A trusted, nonblocking monotonic time source, sampled under the ledger lock.
 pub trait BudgetClock: Send + Sync {
     fn now(&self) -> Duration;
@@ -85,6 +91,7 @@ struct State {
     sealed: bool,
     recovery_frozen: bool,
     checkpoint_revision: u64,
+    grants: Vec<BudgetGrantRecord>,
     charged: BudgetAmounts,
     reserved: BudgetAmounts,
     usage: BudgetUsageReport,

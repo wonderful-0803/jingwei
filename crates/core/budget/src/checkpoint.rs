@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 
-use jingwei_core::{EventId, SessionEvent, SessionId};
+use jingwei_core::{BudgetExecutionId, EventId, SessionEvent, SessionId};
 use serde::{Deserialize, Serialize};
 
 use super::*;
@@ -13,6 +13,8 @@ use super::*;
 #[serde(try_from = "u16", into = "u16")]
 pub enum BudgetCheckpointVersion {
     V1,
+    V2,
+    V3,
 }
 
 impl TryFrom<u16> for BudgetCheckpointVersion {
@@ -20,14 +22,20 @@ impl TryFrom<u16> for BudgetCheckpointVersion {
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(Self::V1),
+            2 => Ok(Self::V2),
+            3 => Ok(Self::V3),
             _ => Err("unsupported budget checkpoint version"),
         }
     }
 }
 
 impl From<BudgetCheckpointVersion> for u16 {
-    fn from(_: BudgetCheckpointVersion) -> Self {
-        1
+    fn from(version: BudgetCheckpointVersion) -> Self {
+        match version {
+            BudgetCheckpointVersion::V1 => 1,
+            BudgetCheckpointVersion::V2 => 2,
+            BudgetCheckpointVersion::V3 => 3,
+        }
     }
 }
 
@@ -58,13 +66,19 @@ impl From<&SessionEvent> for BudgetEventCursor {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BudgetCheckpoint {
-    version: BudgetCheckpointVersion,
-    revision: u64,
+    pub(crate) version: BudgetCheckpointVersion,
+    pub(crate) revision: u64,
     next_id: u64,
     anchor: Option<BudgetEventCursor>,
-    report: BudgetReport,
+    pub(crate) report: BudgetReport,
     run_id: Option<u64>,
     recovery_frozen: bool,
+    /// V2/V3 execution claim. V1 images remain readable but cannot carry a claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_id: Option<BudgetExecutionId>,
+    /// V3 bounded, append-only host grants. Retained across every subsequent run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) grants: Vec<BudgetGrantRecord>,
 }
 
 /// Host expectations obtained independently from trusted storage and log checks.
@@ -93,6 +107,35 @@ pub enum BudgetCheckpointError {
 }
 
 impl BudgetCheckpoint {
+    pub fn execution_id(&self) -> Option<&BudgetExecutionId> {
+        self.execution_id.as_ref()
+    }
+
+    pub(crate) fn is_quiescent(&self) -> bool {
+        self.execution_id.is_none()
+            && !self.recovery_frozen
+            && self.run_id.is_none()
+            && self.report.pending.is_empty()
+    }
+
+    pub(crate) fn execution_claim(&self) -> Result<Self, BudgetCheckpointError> {
+        if !self.is_quiescent() {
+            return Err(BudgetCheckpointError::Invalid(
+                "checkpoint requires recovery",
+            ));
+        }
+        let mut claim = self.clone();
+        claim.version = BudgetCheckpointVersion::V3;
+        claim.revision = claim
+            .revision
+            .checked_add(1)
+            .ok_or(BudgetCheckpointError::RevisionExhausted)?;
+        claim.recovery_frozen = true;
+        claim.execution_id = Some(BudgetExecutionId::new());
+        claim.validate()?;
+        Ok(claim)
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -129,6 +172,16 @@ impl BudgetCheckpoint {
     /// Structural checks, not authenticity, authorization, freshness or log validation.
     pub fn validate(&self) -> Result<(), BudgetCheckpointError> {
         use BudgetCheckpointError::Invalid;
+        if let Some(id) = &self.execution_id
+            && (self.version == BudgetCheckpointVersion::V1
+                || id.as_str().trim().is_empty()
+                || !self.recovery_frozen
+                || self.run_id.is_some()
+                || !self.report.pending.is_empty())
+        {
+            return Err(Invalid("invalid durable execution claim"));
+        }
+        self.validate_grants()?;
         let report = &self.report;
         let identity = &report.identity;
         if self.revision == 0 {
@@ -284,7 +337,7 @@ impl TaskBudget {
         }
         self.0.tick(&mut state);
         let checkpoint = BudgetCheckpoint {
-            version: BudgetCheckpointVersion::V1,
+            version: BudgetCheckpointVersion::V3,
             revision: state
                 .checkpoint_revision
                 .checked_add(1)
@@ -294,6 +347,8 @@ impl TaskBudget {
             report: self.0.snapshot(&state),
             run_id: state.run.as_ref().map(|run| run.id),
             recovery_frozen: state.recovery_frozen,
+            execution_id: None,
+            grants: state.grants.clone(),
         };
         checkpoint.validate()?;
         state.sealed = true;
@@ -361,6 +416,7 @@ impl TaskBudget {
                 sealed: false,
                 recovery_frozen: frozen,
                 checkpoint_revision: checkpoint.revision,
+                grants: checkpoint.grants,
                 charged: report.charged,
                 reserved: report.reserved,
                 usage: report.usage,
@@ -424,7 +480,9 @@ pub trait BudgetCheckpointStore: Send + Sync {
     ) -> BudgetCheckpointFuture<'a, Result<Option<BudgetCheckpoint>, BudgetCheckpointStoreError>>;
 
     /// Atomically replace expected_revision (0 = absent) with its next revision.
-    /// Validate the image, reject wrong identity, and return only after durability.
+    /// Validate the image and `validate_transition` against the actual previous
+    /// image under the same CAS boundary; reject wrong identity and lost/rewritten
+    /// grants. Return only after durability. Audit and limits are one atomic image.
     /// Exact retries of the same transition may return ReplayedExact. For an
     /// indeterminate result, reconcile this same image before any new transition.
     fn compare_exchange<'a>(

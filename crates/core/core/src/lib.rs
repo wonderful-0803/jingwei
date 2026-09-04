@@ -20,6 +20,9 @@ pub use event::{
     ModelRequestOptions, ModelResult, ModelTimeout, ModelTimeoutError, SessionEvent,
     SessionEventKind, StageStatus, ToolCall, ToolFailureCategory, ToolRecordedOutcome, ToolResult,
 };
-pub use id::{EventId, GenerationId, MessageId, ModelCallId, SessionId, StepId, TaskId, TurnId};
+pub use id::{
+    BudgetExecutionId, BudgetOperationId, EventId, GenerationId, MessageId, ModelCallId, SessionId,
+    StepId, TaskId, TurnId,
+};
 pub use model::*;
 pub use observer::{EventObserver, ObserverError, ObserverFuture};

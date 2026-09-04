@@ -783,6 +783,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "jingwei-journal-jsonl"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "jingwei-core",
+ "jingwei-plugin",
+ "jingwei-session",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "jingwei-llm"
 version = "0.1.0"
 dependencies = [
@@ -849,6 +861,7 @@ dependencies = [
  "jingwei-agent-runtime",
  "jingwei-budget-file",
  "jingwei-core",
+ "jingwei-journal-jsonl",
  "jingwei-llm-runtime",
  "jingwei-openai",
  "jingwei-session-runtime",

@@ -10,10 +10,12 @@ v0版本目标是让进程内 Agent 组合清楚、可检查，而不是用隐�
 当前工作区正在开发 v0.1。新增统一模型协议、可选 `jingwei-action` 单步动作组件与共享内存预算账本，
 入口见[开发指南](docs/guide/src/index.md)、[单步动作执行](docs/guide/src/action-step.md)与[任务预算](docs/guide/src/task-budget.md)。
 canonical 模型 runtime 已提供共享并发限制、有限等待队列和从准入开始的截止时间，见[模型调度](docs/guide/src/model-scheduling.md)。
-Agent、模型与工具运行时已接入共享 Task 预算，并生成规范运行报告；预算持久恢复仍待实现。
+Agent、模型与工具运行时已接入共享 Task 预算，并生成规范运行报告；持久模式需要宿主显式选择。
 JW-04-d1 增加[预算快照与恢复原语](docs/guide/src/budget-checkpoints.md)，但不自动持久化，也不完成运行时跨进程恢复或增额审计。
 
-JW-04-d2-a 提供可选的[本地文件检查点存储](docs/guide/src/file-checkpoint-store.md)：有界 IO、跨进程 CAS、精确重试和损坏日志拒绝。运行前持久占用、排他恢复与增额审计仍待接入。
+JW-04-d2-a 提供可选的[本地文件检查点存储](docs/guide/src/file-checkpoint-store.md)：有界 IO、跨进程 CAS、精确重试和损坏日志拒绝。
+JW-04-d2-b 接入[持久预算运行](docs/guide/src/durable-budget.md)：先确认唯一占用，再执行；日志边界核验和最终检查点屏障由 canonical runtime 负责。
+JW-04-d2-c1 提供[宿主审计增额](docs/guide/src/budget-grants.md)：在安全边界原子保存新上限和审计记录，支持幂等重试且保留累计消耗。冻结解除及完整任务恢复仍待后续验收。
 这些开发功能不包含在下方固定的旧提交中；使用新功能须基于同一个实际取得的源码快照，
 不能把当前进度理解为已发布到 crates.io 的完整 v0.1。
 
@@ -31,6 +33,17 @@ cargo check --workspace --all-targets --all-features --locked
 
 开发指南保持在独立的 `docs/guide`，测试工程保持在 `tests/model-protocol`。
 开发资产入 Git 不改变 Cargo 包的排除规则；正式交付仍需单独核验包内容。
+
+指南使用 VitePress 独立构建。在 `docs/guide` 安装锁定依赖后即可本地阅读：
+
+```text
+cd docs/guide
+npm ci
+npm run docs:dev
+```
+
+Node.js 版本及静态构建、预览、未来子路径发布说明见[指南站工程](docs/guide/README.md)。
+构建产物不包含内部文档、测试或 Rust 源码；本轮没有自动部署公开站点。
 
 Linux 环境可运行 `bash scripts/check-baseline.sh`（需 Python 3），执行两个 workspace 的
 9 项离线检查并保存日志到 `results/baseline`。首次执行前准备指定工具链，并对主 workspace
@@ -146,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `jingwei-journal-jsonl` | 由应用选择的 append-only JSONL `SessionPersistence` provider。 |
 | `jingwei-openai` | 可选的 OpenAI-compatible 原始 LLM provider，适用于 `/chat/completions` 端点。 |
 | `jingwei-action` | 可选单步动作组件：原生/JSON 协议、CallTool/Final/AskUser、受控执行及证据关联；通过 façade 的 `actions` feature 启用。 |
-| `jingwei-budget` | 轻量共享 Task 预算账本：原子预留、保守结算、跨 run 累计与时间报告；通过 `jingwei::budget` 访问，不负责执行调度或持久恢复。 |
+| `jingwei-budget` | 共享 Task 预算账本、快照与显式持久占用协调；通过 `jingwei::budget` 访问，不包含具体 IO 或执行调度。 |
 | `jingwei-budget-file` | 宿主显式选择的本地文件检查点存储，不进入默认 facade 依赖图，不提供执行所有权。 |
 | `jingwei-llm-runtime` | 完整/流式模型调用共享的有限调度、超时、取消和规范记录屏障；总在途限制覆盖尚未完成的记录和清理。 |
 

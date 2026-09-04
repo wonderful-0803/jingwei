@@ -64,3 +64,7 @@ id_newtype!(MessageId, "msg");
 id_newtype!(EventId, "evt");
 id_newtype!(TaskId, "task");
 id_newtype!(StepId, "step");
+// Unique durable execution claim, not a task ID or a tool idempotency key.
+id_newtype!(BudgetExecutionId, "bexec");
+// Stable host audit operation, never an execution or tool replay capability.
+id_newtype!(BudgetOperationId, "bop");

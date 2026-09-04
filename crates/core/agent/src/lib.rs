@@ -7,8 +7,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use jingwei_budget::{
-    BudgetAmounts, BudgetError, BudgetLimits, BudgetReport, BudgetRequest, BudgetScope, TaskBudget,
-    TaskRunReport,
+    BudgetAmounts, BudgetCheckpoint, BudgetError, BudgetExecutionError, BudgetExecutionLease,
+    BudgetLimits, BudgetReport, BudgetRequest, BudgetScope, TaskBudget, TaskRunReport,
 };
 
 use jingwei_core::{
@@ -356,6 +356,7 @@ pub struct AgentTurnRequest {
     agent_key: String,
     user_message: String,
     budget: Option<(TaskBudget, BudgetLimits)>,
+    durable_budget: Option<BudgetExecutionLease>,
 }
 
 impl AgentTurnRequest {
@@ -369,12 +370,27 @@ impl AgentTurnRequest {
             agent_key: agent_key.into(),
             user_message: user_message.into(),
             budget: None,
+            durable_budget: None,
         }
     }
 
     #[must_use]
     pub fn with_budget(mut self, task: TaskBudget, run_limits: BudgetLimits) -> Self {
+        self.durable_budget = None;
         self.budget = Some((task, run_limits));
+        self
+    }
+
+    /// Transfer an already confirmed, unique durable claim to the runtime. Any
+    /// rejection or abandoned execution retains the claim for explicit recovery.
+    #[must_use]
+    pub fn with_durable_budget(
+        mut self,
+        lease: BudgetExecutionLease,
+        run_limits: BudgetLimits,
+    ) -> Self {
+        self.budget = Some((lease.task().clone(), run_limits));
+        self.durable_budget = Some(lease);
         self
     }
 
@@ -389,12 +405,14 @@ impl AgentTurnRequest {
         String,
         String,
         Option<(TaskBudget, BudgetLimits)>,
+        Option<BudgetExecutionLease>,
     ) {
         (
             self.session_id,
             self.agent_key,
             self.user_message,
             self.budget,
+            self.durable_budget,
         )
     }
 
@@ -438,6 +456,7 @@ pub struct AgentTurnReport {
     artifact: Option<serde_json::Value>,
     events: Arc<[SessionEvent]>,
     task_run_report: Option<TaskRunReport>,
+    budget_checkpoint: Option<BudgetCheckpoint>,
 }
 
 impl AgentTurnReport {
@@ -457,6 +476,7 @@ impl AgentTurnReport {
             artifact,
             events,
             task_run_report: None,
+            budget_checkpoint: None,
         }
     }
 
@@ -468,6 +488,18 @@ impl AgentTurnReport {
 
     pub fn task_run_report(&self) -> Option<&TaskRunReport> {
         self.task_run_report.as_ref()
+    }
+
+    /// Receipt of the separate final budget commit; None for in-memory turns.
+    /// This is evidence, not authority to execute or proof of current freshness.
+    pub fn budget_checkpoint(&self) -> Option<&BudgetCheckpoint> {
+        self.budget_checkpoint.as_ref()
+    }
+
+    #[must_use]
+    pub fn with_budget_checkpoint(mut self, checkpoint: BudgetCheckpoint) -> Self {
+        self.budget_checkpoint = Some(checkpoint);
+        self
     }
 
     pub fn session_id(&self) -> &SessionId {
@@ -900,6 +932,17 @@ impl Error for TurnFailure {}
 /// Synchronous admission or owned-turn completion failure.
 #[derive(Debug, thiserror::Error)]
 pub enum AgentRuntimeError {
+    #[error("durable recovery boundary rejected: {source}")]
+    RecoveryBoundary {
+        source: BudgetExecutionError,
+        settlement: Result<(), SessionRuntimeError>,
+    },
+    /// Session outcome is retained even when the separate checkpoint barrier fails.
+    #[error("durable budget finalization failed: {source}")]
+    Durability {
+        source: BudgetExecutionError,
+        outcome: Box<Result<AgentTurnReport, AgentRuntimeError>>,
+    },
     #[error(transparent)]
     Budget(#[from] BudgetError),
     #[error("AgentRuntime is stopped")]

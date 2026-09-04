@@ -1,0 +1,53 @@
+name: Developer guide
+
+on:
+  pull_request:
+    paths:
+      - 'docs/guide/**'
+      - 'tests/guide-site/**'
+      - '.github/workflows/guide.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'docs/guide/**'
+      - 'tests/guide-site/**'
+      - '.github/workflows/guide.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: docs/guide/.nvmrc
+          package-manager-cache: false
+      - name: Install locked guide dependencies
+        working-directory: docs/guide
+        run: npm ci
+      - name: Verify Markdown presentation
+        run: node --test tests/guide-site/markdown.test.mjs
+      - name: Build root-path guide
+        working-directory: docs/guide
+        run: npm run docs:build
+      - name: Check static pages, links and search
+        run: node tests/guide-site/check.mjs
+      - name: Build project-path guide
+        working-directory: docs/guide
+        run: npm run docs:build:pages
+      - name: Check project-path assets and navigation
+        run: node tests/guide-site/check.mjs docs/guide/target/pages /jingwei/
+      - name: Save static guide only (no deployment)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jingwei-developer-guide
+          path: docs/guide/target/pages
+          if-no-files-found: error
+          retention-days: 14

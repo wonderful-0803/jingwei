@@ -2,11 +2,11 @@
 
 ## 当前源码快照
 
-workspace 目前由 17 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
+workspace 目前由 18 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
 
 Rust 开发版本固定为 1.96.0，最低支持声明同步为 1.96。此前的 1.85 声明与源码使用的语法不符；本轮基于真实构建结果收敛声明，未承诺更旧工具链。
 
-`rust-toolchain.toml` 会指定开发版本及 Rustfmt/Clippy。已有 Windows x64/MSVC 历史验证记录；当前开发快照按固定工具链在 Linux 完成基线验证，不能据此宣称所有端侧平台已验证。Windows 构建需要 MSVC 构建工具和 Windows SDK。
+`rust-toolchain.toml` 会指定开发版本及 Rustfmt/Clippy。早期阶段有 Windows 与 Linux 验证记录；d2 阶段当前在 Windows x64/MSVC 验证，尚未重跑 Linux，不能据此宣称所有端侧平台已验证。Windows 构建需要 MSVC 构建工具和 Windows SDK。
 
 ## 框架源码检查
 
@@ -20,6 +20,8 @@ cargo doc --workspace --all-features --no-deps
 ```
 
 生成的 API 文档入口在 target/doc/jingwei/index.html。指南 Markdown 位于独立的 docs/guide 区域，不是任何 crate 的编译输入。
+
+指南站使用 VitePress，Node.js/npm 工程和锁文件只位于 docs/guide。阅读已发布的静态指南不需要 Node.js；本地编写与构建流程见[编写与发布指南](writing-guide.md)，Rust API 文档入口见 [API 参考](api-reference.md)。
 
 dev 分支包含独立契约测试和其他开发资料，所有层级的 target 目录均被排除。
 这些开发资产不进入 Cargo 发布包；框架源码和指南构建不依赖验证工程。
@@ -44,3 +46,7 @@ SessionEventKind 新增由 runtime 写入的 TaskRunReport，使用独立数字�
 JW-04-d1 新增 BudgetCheckpoint、BudgetRestoreContext 和 BudgetCheckpointStore 契约；新增 CheckpointSealed 错误与 RecoveryRequired 停止原因。快照使用独立版本，不改变旧模型事件含义。验证工程增加本机子进程测试，需要允许启动自身测试可执行文件和写入临时测试目录；不启动模型服务。当前接入边界见[预算快照](budget-checkpoints.md)。
 
 JW-04-d2-a 新增显式选择的 jingwei-budget-file，使用 Rust 标准文件锁与 Tokio blocking IO；不进入默认 facade 依赖图。新增 Busy/Closed/Corrupt/LimitExceeded 存储错误，未上线阶段直接扩展接口。指南见[文件检查点存储](file-checkpoint-store.md)。测试会启动并终止自身创建的持锁子进程，以验证进程退出后的锁释放，不涉及外部服务。
+
+JW-04-d2-b 增加 BudgetExecutionLease、with_durable_budget 与确认回执；into_budget_parts 现在同时移交可选持久租约，自定义 runtime 需要处理它，不能忽略。新快照导出为 V2，V1 普通镜像可读，但不能承载占用；TaskRunReport 和文件外层版本仍为 1。独立工程增加真实 Session JSONL/预算文件的跨进程运行与中断测试，只终止自身创建的测试子进程。详见[持久预算运行](durable-budget.md)。
+
+JW-04-d2-c1 将新导出快照升级为 V3，增加宿主[审计增额](budget-grants.md)和稳定操作 ID；V1/V2 读取规则保留。自定义存储须在真实 CAS 与链读取中增加 validate_transition 校验，不再仅检查 revision。审计限制有限，核心不新增 IO 或第三方依赖；冻结占用仍不能通过增额解除。

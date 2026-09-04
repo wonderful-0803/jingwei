@@ -2,6 +2,8 @@
 
 日期：2026-09-04。状态：采用；实现批次 JW-04-d2-a。前置：[ADR-0007](0007-budget-checkpoints.md)。
 
+后续修订：本文保留 d2-a 时的 V1 检查点描述。d2-b 增加 V2 检查点占用语义，文件记录外层仍为数字版本 1；接续契约见 [ADR-0009](0009-durable-budget-execution.md)。
+
 ## 决策与框架边界
 
 新增独立 `jingwei-budget-file`，实现 `BudgetCheckpointStore`，由宿主显式选择。预算核心仍无 IO/Tokio，facade 默认依赖图不引入这个适配器；不新增全局 provider，不把业务 Task payload 混入预算检查点。

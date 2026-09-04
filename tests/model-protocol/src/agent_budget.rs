@@ -151,7 +151,7 @@ impl Agent for Probe {
                 .unwrap()
                 .push(budget.report().unwrap());
             match input.user_message {
-                "step" => {
+                "step" | "ask" => {
                     budget.consume_step().unwrap();
                     ctx.emit_text_delta("step confirmed").await?;
                 }
@@ -193,17 +193,39 @@ impl Agent for Probe {
                     self.entered.add_permits(1);
                     self.release.acquire().await.unwrap().forget();
                 }
+                "model" | "hold_after_model" => {
+                    budget.consume_step()?;
+                    ctx.model()
+                        .unwrap()
+                        .generate(
+                            &GenerationRequest::text(vec![ModelMessage::user(
+                                "before interruption",
+                            )]),
+                            GenerationOptions::default(),
+                        )
+                        .await?;
+                    if input.user_message == "hold_after_model" {
+                        self.entered.add_permits(1);
+                        self.release.acquire().await.unwrap().forget();
+                    }
+                }
                 "observe" => {}
                 other => panic!("unknown fixture command {other}"),
             }
             Ok(AgentTurnOutput {
                 final_text: "agent claims completion".into(),
-                outcome: TurnOutcome::Completed,
+                outcome: if input.user_message == "ask" {
+                    TurnOutcome::WaitingForInput
+                } else {
+                    TurnOutcome::Completed
+                },
                 artifact: None,
             })
         })
     }
 }
+
+mod durable;
 
 struct ProbePlugin(Arc<Probe>, bool);
 
@@ -336,6 +358,10 @@ enum SessionFault {
     ReportTurn,
     ReportKind,
     ReportPayload,
+    ReportEventId,
+    TerminalKind,
+    SettlementOmitReport,
+    SettlementFail,
 }
 
 struct FaultySession {
@@ -409,9 +435,18 @@ impl SessionTurn for FaultySessionTurn {
                         };
                         report.budget.charged.steps += 1;
                     }
-                    SessionFault::AdmissionSession => {}
+                    SessionFault::ReportEventId => event.event_id = jingwei::id::EventId::new(),
+                    SessionFault::AdmissionSession
+                    | SessionFault::TerminalKind
+                    | SessionFault::SettlementOmitReport
+                    | SessionFault::SettlementFail => {}
                 }
                 *self.state.returned_report.lock().unwrap() = Some(event.clone());
+            }
+            if matches!(self.state.fault, SessionFault::TerminalKind)
+                && let SessionEventKind::Done { status, .. } = &mut event.kind
+            {
+                *status = jingwei_core::DoneStatus::Cancelled;
             }
             Ok(Arc::new(event))
         })
@@ -422,9 +457,16 @@ impl SessionTurn for FaultySessionTurn {
     ) -> SessionFuture<'static, Result<TurnCommitSummary, SessionRuntimeError>> {
         Box::pin(async move {
             self.state.settled.fetch_add(1, Ordering::SeqCst);
+            if matches!(self.state.fault, SessionFault::SettlementFail) {
+                return Err(SessionRuntimeError::Stopped);
+            }
+            let mut events = self.state.events.lock().unwrap().clone();
+            if matches!(self.state.fault, SessionFault::SettlementOmitReport) {
+                events.retain(|event| !is_report(event));
+            }
             Ok(TurnCommitSummary::new(
                 self.admission.turn_id().clone(),
-                self.state.events.lock().unwrap().clone(),
+                events,
             ))
         })
     }

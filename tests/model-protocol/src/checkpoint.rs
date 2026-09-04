@@ -266,8 +266,8 @@ fn invalid_cursor_rejects_export_without_sealing_the_ledger() {
 #[test]
 fn checkpoint_version_is_required_numeric_and_known() {
     let original = serde_json::to_value(settled_image()).unwrap();
-    assert_eq!(original["version"], 1);
-    for version in [Value::Null, json!(0), json!(2), json!("1"), json!(1.5)] {
+    assert_eq!(original["version"], 3);
+    for version in [Value::Null, json!(0), json!(4), json!("1"), json!(1.5)] {
         let mut wire = original.clone();
         wire["version"] = version;
         assert!(serde_json::from_value::<BudgetCheckpoint>(wire).is_err());

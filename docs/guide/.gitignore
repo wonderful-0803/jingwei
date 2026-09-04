@@ -1,0 +1,4 @@
+# Downloaded dependencies are rebuildable; source and the lockfile stay in dev.
+/node_modules/
+# All guide output/cache stays under target (also ignored by the repository).
+/target/

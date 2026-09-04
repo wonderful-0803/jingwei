@@ -249,7 +249,7 @@ async fn corrupt_and_torn_logs_fail_closed_without_repair() {
     extra["ignored"] = json!(true);
     cases.push(line(&extra));
     let mut wrong = first.clone();
-    wrong["checkpoint"]["version"] = json!(2);
+    wrong["checkpoint"]["version"] = json!(4);
     cases.push(line(&wrong));
     let mut wrong = first.clone();
     wrong["checkpoint"]["report"]["reserved"]["input_tokens"] = json!(9);

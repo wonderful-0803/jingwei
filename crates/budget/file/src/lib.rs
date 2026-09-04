@@ -148,6 +148,10 @@ impl Inner {
             {
                 return Err(corrupt(record, "task binding changed inside log"));
             }
+            entry
+                .checkpoint
+                .validate_transition(latest.as_ref())
+                .map_err(|error| corrupt(record, error))?;
             latest = Some(entry.checkpoint);
         }
         if latest
@@ -284,6 +288,7 @@ impl BudgetCheckpointStore for FileBudgetCheckpointStore {
                         actual,
                     });
                 }
+                checkpoint.validate_transition(latest.as_ref())?;
                 let mut encoded = BoundedBytes {
                     bytes: Vec::new(),
                     limit: inner.config.max_record_bytes,

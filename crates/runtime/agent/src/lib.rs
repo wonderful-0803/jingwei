@@ -14,9 +14,9 @@ use jingwei_agent::{
     TurnClosureStatus, TurnDisposition, TurnFailure, TurnFailureContext, TurnFinally,
 };
 use jingwei_budget::{
-    BudgetClock, BudgetError, BudgetIdentity, BudgetLimits, BudgetReport, BudgetRun, BudgetScope,
-    BudgetStopReason, TaskBudget, TaskRunReport, TaskRunReportVersion, TaskRunStop,
-    TokenBudgetMode,
+    BudgetClock, BudgetError, BudgetExecutionError, BudgetExecutionLease, BudgetIdentity,
+    BudgetLimits, BudgetReport, BudgetRun, BudgetScope, BudgetStopReason, TaskBudget,
+    TaskRunReport, TaskRunReportVersion, TaskRunStop, TokenBudgetMode,
 };
 use jingwei_core::{
     CancellationFuture, CancellationSignal, DoneStatus, SessionEvent, SessionEventKind, SessionId,
@@ -431,7 +431,7 @@ impl AgentRuntime for CanonicalAgentRuntime {
         &self,
         request: AgentTurnRequest,
     ) -> Result<Box<dyn AgentTurnController>, AgentRuntimeError> {
-        let (session_id, agent_key, user_message, binding) = request.into_budget_parts();
+        let (session_id, agent_key, user_message, binding, durable) = request.into_budget_parts();
         let (job_id, agent, cancellation, budget_run) = {
             let mut control = self.state.lock_control();
             if control.lifecycle != RuntimeLifecycleState::Running {
@@ -499,8 +499,13 @@ impl AgentRuntime for CanonicalAgentRuntime {
                     budget_run: Some(budget_run),
                     budget: driver_budget,
                 },
+                durable.as_ref(),
             )
             .await;
+            let result = match durable {
+                Some(lease) => finalize_durable(lease, result).await,
+                None => result,
+            };
             guard.complete(sender, result);
         });
         drop(task);
@@ -535,18 +540,20 @@ impl JobGuard {
     ) {
         let undelivered = sender.send(result).err();
         let mut control = self.state.lock_control();
-        if let Some(Err(AgentRuntimeError::Turn(failure))) = undelivered
-            && failure.closure_status() != TurnClosureStatus::Closed
-        {
-            tracing::error!(
-                session_id = %failure.session_id(),
-                turn_id = %failure.turn_id(),
-                disposition = ?failure.disposition(),
-                closure = ?failure.closure_status(),
-                "detached Agent turn failed canonical closure"
-            );
-            if control.detached_closure_failures.len() < MAX_DETACHED_FAILURES {
-                control.detached_closure_failures.push(failure.to_string());
+        if let Some(Err(error)) = undelivered {
+            let incomplete = match &error {
+                AgentRuntimeError::Turn(failure) => {
+                    failure.closure_status() != TurnClosureStatus::Closed
+                }
+                AgentRuntimeError::Durability { .. }
+                | AgentRuntimeError::RecoveryBoundary { .. } => true,
+                _ => false,
+            };
+            if incomplete {
+                tracing::error!(error = %error, "detached Agent turn failed canonical closure or durability");
+                if control.detached_closure_failures.len() < MAX_DETACHED_FAILURES {
+                    control.detached_closure_failures.push(error.to_string());
+                }
             }
         }
         control.jobs.remove(&self.job_id);
@@ -640,6 +647,7 @@ impl ModelEventRecorder for SharedTurn {
 async fn drive_turn(
     state: Arc<RuntimeState>,
     mut request: DriverRequest,
+    durable: Option<&BudgetExecutionLease>,
 ) -> Result<AgentTurnReport, AgentRuntimeError> {
     let mut run = request
         .budget_run
@@ -686,6 +694,14 @@ async fn drive_turn(
             .stop_with(BudgetStopReason::IdentityMismatch)?;
     }
     let history = session_turn.admission().history();
+    if let Some(lease) = durable
+        && let Err(source) = lease.verify_history(&history)
+    {
+        // Do not append a new envelope onto an unverified recovery boundary.
+        let settlement = session_turn.settle().await.map(|_| ());
+        let _ = run.finish();
+        return Err(AgentRuntimeError::RecoveryBoundary { source, settlement });
+    }
     let shared_turn = Arc::new(SharedTurn::new(session_turn));
 
     run_start_hooks(&state.hooks, &session_id, &turn_id);
@@ -932,6 +948,24 @@ async fn drive_turn(
     // Retain the Task lease until the final Session persistence barrier has returned.
     let _ = run.finish();
 
+    let durable_evidence_error = if durable.is_some() {
+        match (&report_attempt, &terminal_result, &settlement_result) {
+            (TaskRunReportAttempt::Committed { event: report, .. }, Ok(terminal), Ok(summary))
+                if terminal.session_id == session_id
+                    && terminal.turn_id == turn_id
+                    && terminal.kind == resolved.terminal_kind()
+                    && summary.turn_id() == &turn_id
+                    && summary.events().last() == Some(terminal.as_ref())
+                    && summary.events().iter().rev().nth(1) == Some(report.as_ref()) =>
+            {
+                None
+            }
+            _ => Some(BudgetExecutionError::IncompleteTurn),
+        }
+    } else {
+        None
+    };
+
     if let Ok(summary) = &settlement_result
         && (resolved.disposition == TurnDisposition::Failed
             || (resolved.disposition == TurnDisposition::Cancelled && !resolved.has_agent_output))
@@ -982,7 +1016,13 @@ async fn drive_turn(
     if resolved.disposition != TurnDisposition::Failed
         && let Some(report) = report
     {
-        return Ok(report);
+        return match durable_evidence_error {
+            Some(source) => Err(AgentRuntimeError::Durability {
+                source,
+                outcome: Box::new(Ok(report)),
+            }),
+            None => Ok(report),
+        };
     }
 
     let context = TurnFailureContext::new(
@@ -997,7 +1037,44 @@ async fn drive_turn(
     .with_task_run_report_attempt(report_attempt);
     let failure = TurnFailure::new(context, terminal_attempt, settlement_attempt)
         .expect("canonical AgentRuntime must produce valid total failure evidence");
-    Err(AgentRuntimeError::Turn(Box::new(failure)))
+    let outcome = Err(AgentRuntimeError::Turn(Box::new(failure)));
+    match durable_evidence_error {
+        Some(source) => Err(AgentRuntimeError::Durability {
+            source,
+            outcome: Box::new(outcome),
+        }),
+        None => outcome,
+    }
+}
+
+async fn finalize_durable(
+    lease: BudgetExecutionLease,
+    outcome: Result<AgentTurnReport, AgentRuntimeError>,
+) -> Result<AgentTurnReport, AgentRuntimeError> {
+    let report = match &outcome {
+        Ok(report) => Some(report),
+        Err(AgentRuntimeError::Turn(failure)) => failure.report(),
+        _ => None,
+    };
+    let Some(report) = report else {
+        return match outcome {
+            Err(
+                error @ (AgentRuntimeError::Durability { .. }
+                | AgentRuntimeError::RecoveryBoundary { .. }),
+            ) => Err(error),
+            outcome => Err(AgentRuntimeError::Durability {
+                source: BudgetExecutionError::IncompleteTurn,
+                outcome: Box::new(outcome),
+            }),
+        };
+    };
+    match lease.commit_closed(report.events()).await {
+        Ok(checkpoint) => outcome.map(|report| report.with_budget_checkpoint(checkpoint)),
+        Err(source) => Err(AgentRuntimeError::Durability {
+            source,
+            outcome: Box::new(outcome),
+        }),
+    }
 }
 
 fn closure_status_from_results(
