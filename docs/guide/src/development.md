@@ -40,3 +40,5 @@ canonical 模型 runtime 已增加有限调度和默认 600 秒的准入期限�
 共享预算接入新增 `AgentTurnRequest::with_budget`、窄 `AgentContext::budget()`、模型/工具绑定的 `with_budget`，以及 runtime 的类型化 Budget 错误。canonical Agent 默认获得有限临时 Task，显式 Task 可跨 Turn 复用；ActionStep 的 TaskId 应来自当前预算身份。自定义 runtime/context 的可选观察默认 None 不表示预算已经实现，扩展需自行遵循受控预算契约。自定义 runtime 应使用 `into_budget_parts()` 接收并保留传入的作用域；旧 `into_parts()` 不携带预算，不适用于需要受控预算的新实现。
 
 SessionEventKind 新增由 runtime 写入的 TaskRunReport，使用独立数字版本 1；旧模型事件仍为 V1。事件消费者的穷尽匹配需要更新，预算 run 的 TurnId 现为 Option，以表示尚未取得 Session 租约的准入阶段。报告失败会保留类型化尝试证据；这些观察数据不提供恢复授权。详见[任务预算](task-budget.md)，本批检查结果以对应实施记录为准。
+
+JW-04-d1 新增 BudgetCheckpoint、BudgetRestoreContext 和 BudgetCheckpointStore 契约；新增 CheckpointSealed 错误与 RecoveryRequired 停止原因。快照使用独立版本，不改变旧模型事件含义。验证工程增加本机子进程测试，需要允许启动自身测试可执行文件和写入临时测试目录；不启动模型服务。当前接入边界见[预算快照](budget-checkpoints.md)。

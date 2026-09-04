@@ -185,6 +185,8 @@ pub struct BudgetUsageReport {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum BudgetStopReason {
+    /// A restored interrupted run requires host reconciliation; never auto-replay it.
+    RecoveryRequired,
     ResourceLimit(BudgetResource),
     ActiveTime,
     UsageExceededReservation(BudgetResource),

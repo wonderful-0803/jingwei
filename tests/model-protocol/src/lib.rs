@@ -3,12 +3,16 @@
 #![doc = include_str!("../../../docs/guide/src/action-step.md")]
 #![doc = include_str!("../../../docs/guide/src/task-budget.md")]
 #![doc = include_str!("../../../docs/guide/src/model-scheduling.md")]
+#![doc = include_str!("../../../docs/guide/src/budget-checkpoints.md")]
 
 #[cfg(test)]
 mod actions;
 
 #[cfg(test)]
 mod budget;
+
+#[cfg(test)]
+mod checkpoint;
 
 #[cfg(test)]
 mod scheduler;

@@ -14,6 +14,9 @@ use std::time::{Duration, Instant};
 use jingwei_core::TurnId;
 pub use jingwei_core::budget::*;
 
+mod checkpoint;
+pub use checkpoint::*;
+
 /// A trusted, nonblocking monotonic time source, sampled under the ledger lock.
 pub trait BudgetClock: Send + Sync {
     fn now(&self) -> Duration;
@@ -35,6 +38,8 @@ impl BudgetClock for MonotonicBudgetClock {
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum BudgetError {
+    #[error("this ledger has been sealed for checkpoint transfer")]
+    CheckpointSealed,
     #[error("task, session and agent identity must be nonempty")]
     InvalidIdentity,
     #[error("budget binding identity does not match the request or recorded event")]
@@ -77,6 +82,9 @@ struct Inner {
 
 #[derive(Default)]
 struct State {
+    sealed: bool,
+    recovery_frozen: bool,
+    checkpoint_revision: u64,
     charged: BudgetAmounts,
     reserved: BudgetAmounts,
     usage: BudgetUsageReport,
@@ -170,6 +178,7 @@ impl TaskBudget {
         limits: BudgetLimits,
     ) -> Result<BudgetRun, BudgetError> {
         let mut state = self.0.lock()?;
+        state.check_writable()?;
         self.0.tick(&mut state);
         if state.run.is_some() {
             return Err(BudgetError::RunActive);
@@ -246,6 +255,7 @@ impl BudgetRun {
     /// Retry after settling pending reservations. A stopped run can still finish.
     pub fn finish(&mut self) -> Result<BudgetReport, BudgetError> {
         let mut state = self.inner.lock()?;
+        state.check_writable()?;
         self.inner.tick(&mut state);
         if state.run.as_ref().is_none_or(|run| run.id != self.id) {
             return Err(BudgetError::RunClosed);
@@ -272,6 +282,9 @@ impl Drop for BudgetRun {
             return;
         }
         if let Ok(mut state) = self.inner.lock() {
+            if state.check_writable().is_err() {
+                return;
+            }
             self.inner.tick(&mut state);
             if let Some(run) = state.run.as_mut().filter(|run| run.id == self.id) {
                 run.report.open = false;
@@ -407,6 +420,7 @@ impl BudgetScope {
     }
     fn metrics(&self, update: impl FnOnce(&mut BudgetExecutionMetrics)) {
         if let Ok(mut state) = self.inner.lock()
+            && state.check_writable().is_ok()
             && let Some(run) = state.run.as_mut().filter(|run| run.id == self.run_id)
         {
             update(&mut run.report.metrics);
@@ -514,6 +528,7 @@ impl BudgetReservation {
     /// Attempt charges remain even when variable reservations are released.
     pub fn cancel_before_start(mut self) -> Result<(), BudgetError> {
         let mut state = self.inner.lock()?;
+        state.check_writable()?;
         self.inner.tick(&mut state);
         let pending = state
             .pending
@@ -533,6 +548,7 @@ impl BudgetReservation {
     /// Unknown usage keeps the full reservation; actual usage is never clamped.
     pub fn settle(mut self, usage: BudgetUsage) -> Result<(), BudgetError> {
         let mut state = self.inner.lock()?;
+        state.check_writable()?;
         self.inner.tick(&mut state);
         let pending = state
             .pending
@@ -581,6 +597,9 @@ impl Drop for BudgetReservation {
             return;
         }
         if let Ok(mut state) = self.inner.lock() {
+            if state.check_writable().is_err() {
+                return;
+            }
             self.inner.tick(&mut state);
             if let Some(pending) = state.pending.get_mut(&self.id) {
                 pending.abandoned = true;
@@ -602,6 +621,9 @@ impl Inner {
 
     fn report(&self) -> Result<BudgetReport, BudgetError> {
         let mut state = self.lock()?;
+        if state.sealed {
+            return Err(BudgetError::CheckpointSealed);
+        }
         self.tick(&mut state);
         Ok(self.snapshot(&state))
     }
@@ -624,6 +646,9 @@ impl Inner {
 
     // Tick never prevents settlement. Time faults stop admission and remain observable.
     fn tick(&self, state: &mut State) {
+        if state.sealed || state.recovery_frozen {
+            return;
+        }
         let now = self.clock.now();
         let Some(elapsed) = now.checked_sub(state.last_clock) else {
             state
@@ -645,8 +670,8 @@ impl Inner {
         let cleaning = run.cleaning;
         let run = &mut run.report;
         let stopped = state.stop.is_some() || run.stop.is_some();
-        let task_remaining = self.limits.active_time - state.active_time;
-        let run_remaining = run.limits.active_time - run.active_time;
+        let task_remaining = self.limits.active_time.saturating_sub(state.active_time);
+        let run_remaining = run.limits.active_time.saturating_sub(run.active_time);
         let remaining = task_remaining.min(run_remaining);
         let active = if stopped || cleaning {
             Duration::ZERO
@@ -699,7 +724,9 @@ impl DerefMut for StateGuard<'_> {
 }
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
-        let notify = self.stop.is_some()
+        let notify = self.sealed
+            || self.recovery_frozen
+            || self.stop.is_some()
             || self
                 .run
                 .as_ref()
@@ -722,7 +749,18 @@ impl Drop for StateGuard<'_> {
 }
 
 impl State {
+    fn check_writable(&self) -> Result<(), BudgetError> {
+        if self.sealed {
+            Err(BudgetError::CheckpointSealed)
+        } else if self.recovery_frozen {
+            Err(BudgetError::Stopped(BudgetStopReason::RecoveryRequired))
+        } else {
+            Ok(())
+        }
+    }
+
     fn check_run(&self, id: u64) -> Result<(), BudgetError> {
+        self.check_writable()?;
         if self
             .run
             .as_ref()
@@ -735,6 +773,7 @@ impl State {
     }
 
     fn check_stop(&self) -> Result<(), BudgetError> {
+        self.check_writable()?;
         if let Some(reason) = self
             .stop
             .or_else(|| self.run.as_ref().and_then(|run| run.report.stop))

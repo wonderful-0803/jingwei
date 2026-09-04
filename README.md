@@ -11,6 +11,7 @@ v0版本目标是让进程内 Agent 组合清楚、可检查，而不是用隐�
 入口见[开发指南](docs/guide/src/index.md)、[单步动作执行](docs/guide/src/action-step.md)与[任务预算](docs/guide/src/task-budget.md)。
 canonical 模型 runtime 已提供共享并发限制、有限等待队列和从准入开始的截止时间，见[模型调度](docs/guide/src/model-scheduling.md)。
 Agent、模型与工具运行时已接入共享 Task 预算，并生成规范运行报告；预算持久恢复仍待实现。
+JW-04-d1 增加[预算快照与恢复原语](docs/guide/src/budget-checkpoints.md)，但不自动持久化，也不完成运行时跨进程恢复或增额审计。
 这些开发功能不包含在下方固定的旧提交中；使用新功能须基于同一个实际取得的源码快照，
 不能把当前进度理解为已发布到 crates.io 的完整 v0.1。
 
