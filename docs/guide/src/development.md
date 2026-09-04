@@ -42,3 +42,5 @@ canonical 模型 runtime 已增加有限调度和默认 600 秒的准入期限�
 SessionEventKind 新增由 runtime 写入的 TaskRunReport，使用独立数字版本 1；旧模型事件仍为 V1。事件消费者的穷尽匹配需要更新，预算 run 的 TurnId 现为 Option，以表示尚未取得 Session 租约的准入阶段。报告失败会保留类型化尝试证据；这些观察数据不提供恢复授权。详见[任务预算](task-budget.md)，本批检查结果以对应实施记录为准。
 
 JW-04-d1 新增 BudgetCheckpoint、BudgetRestoreContext 和 BudgetCheckpointStore 契约；新增 CheckpointSealed 错误与 RecoveryRequired 停止原因。快照使用独立版本，不改变旧模型事件含义。验证工程增加本机子进程测试，需要允许启动自身测试可执行文件和写入临时测试目录；不启动模型服务。当前接入边界见[预算快照](budget-checkpoints.md)。
+
+JW-04-d2-a 新增显式选择的 jingwei-budget-file，使用 Rust 标准文件锁与 Tokio blocking IO；不进入默认 facade 依赖图。新增 Busy/Closed/Corrupt/LimitExceeded 存储错误，未上线阶段直接扩展接口。指南见[文件检查点存储](file-checkpoint-store.md)。测试会启动并终止自身创建的持锁子进程，以验证进程退出后的锁释放，不涉及外部服务。

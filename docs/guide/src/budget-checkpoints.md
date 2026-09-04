@@ -58,6 +58,8 @@ assert!(budget.report().is_err()); // 旧账本已封存。
 
 `BudgetCheckpointStore` 是可替换的异步 trait，本 crate 没有默认实现，也不在账本锁内进行 IO：
 
+宿主现在可以显式选择独立的 [jingwei-budget-file 文件适配器](file-checkpoint-store.md)，而不是把 IO 依赖引入预算核心。
+
 - `load` 返回指定身份的最新确认快照；不存在快照不代表已有任务可以免费重新创建。
 - `compare_exchange` 原子比较 revision 并持久保存下一版，0 表示不存在。`validate_successor` 仅检查数据和版本关系，不能代替存储端原子 CAS。
 - 精确重试同一个版本和相同内容可以得到 `ReplayedExact`；相同 revision、不同内容必须冲突。

@@ -391,7 +391,17 @@ pub enum BudgetCheckpointCommitCertainty {
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
+/// Errors describe the current attempt, not the outcome of an earlier write.
+/// Never interpret a failed load, corrupt log or missing file as fresh task authority.
 pub enum BudgetCheckpointStoreError {
+    #[error("checkpoint storage is busy; this attempt made no write")]
+    Busy,
+    #[error("checkpoint storage is closed; this attempt made no write")]
+    Closed,
+    #[error("corrupt checkpoint log at record {record}: {message}")]
+    Corrupt { record: u64, message: String },
+    #[error("checkpoint storage {resource} limit exceeded ({limit})")]
+    LimitExceeded { resource: &'static str, limit: u64 },
     #[error("checkpoint compare-and-exchange conflict: expected {expected}, actual {actual}")]
     Conflict { expected: u64, actual: u64 },
     #[error(transparent)]
@@ -404,7 +414,7 @@ pub enum BudgetCheckpointStoreError {
 }
 
 /// Host-selected storage, not a global provider. Implementors own durable atomic
-/// CAS and read consistency across all their writers. No default adapter is supplied.
+/// CAS and read consistency across all their writers. Adapters are selected explicitly.
 pub trait BudgetCheckpointStore: Send + Sync {
     /// Latest committed image for the exact binding; absence is not permission to
     /// recreate a task whose history indicates prior execution.

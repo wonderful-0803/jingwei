@@ -12,6 +12,8 @@ v0版本目标是让进程内 Agent 组合清楚、可检查，而不是用隐�
 canonical 模型 runtime 已提供共享并发限制、有限等待队列和从准入开始的截止时间，见[模型调度](docs/guide/src/model-scheduling.md)。
 Agent、模型与工具运行时已接入共享 Task 预算，并生成规范运行报告；预算持久恢复仍待实现。
 JW-04-d1 增加[预算快照与恢复原语](docs/guide/src/budget-checkpoints.md)，但不自动持久化，也不完成运行时跨进程恢复或增额审计。
+
+JW-04-d2-a 提供可选的[本地文件检查点存储](docs/guide/src/file-checkpoint-store.md)：有界 IO、跨进程 CAS、精确重试和损坏日志拒绝。运行前持久占用、排他恢复与增额审计仍待接入。
 这些开发功能不包含在下方固定的旧提交中；使用新功能须基于同一个实际取得的源码快照，
 不能把当前进度理解为已发布到 crates.io 的完整 v0.1。
 
@@ -145,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `jingwei-openai` | 可选的 OpenAI-compatible 原始 LLM provider，适用于 `/chat/completions` 端点。 |
 | `jingwei-action` | 可选单步动作组件：原生/JSON 协议、CallTool/Final/AskUser、受控执行及证据关联；通过 façade 的 `actions` feature 启用。 |
 | `jingwei-budget` | 轻量共享 Task 预算账本：原子预留、保守结算、跨 run 累计与时间报告；通过 `jingwei::budget` 访问，不负责执行调度或持久恢复。 |
+| `jingwei-budget-file` | 宿主显式选择的本地文件检查点存储，不进入默认 facade 依赖图，不提供执行所有权。 |
 | `jingwei-llm-runtime` | 完整/流式模型调用共享的有限调度、超时、取消和规范记录屏障；总在途限制覆盖尚未完成的记录和清理。 |
 
 `tokio`、Agent 实现、provider 配置和数据目录都属于宿主应用。若应用需要工具能力，

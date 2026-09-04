@@ -1,8 +1,9 @@
 # Jingwei v0.1 — M0 基线与实施准备
 
 > 2026-09-04 接续入口更新：本文件保留 M0/JW-02 的历史事实。JW-04-a/b/c 已完成，
-> d1 已实现预算快照原语；当前进度和下一步以 [JW-04 计划](docs/internal/implementation/JW-04-plan.md)
-> 与 [d1 实施记录](docs/internal/implementation/JW-04-d1.md)为准，下一批为 d2 持久运行闭环。
+> d1 已实现预算快照原语并推送 dev（2a0d223）；d2-a 实现可选文件检查点存储。
+> 当前进度和下一步以 [JW-04 计划](docs/internal/implementation/JW-04-plan.md)
+> 与 [d2-a 实施记录](docs/internal/implementation/JW-04-d2-a.md)为准，下一批为 d2-b 持久占用和运行时接入。
 
 | 项目 | 状态 |
 | --- | --- |

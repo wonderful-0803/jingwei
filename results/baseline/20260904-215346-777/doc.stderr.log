@@ -1,0 +1,18 @@
+ Documenting jingwei v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\sdk\facade)
+ Documenting jingwei-openai v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\openai)
+ Documenting jingwei-standard v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\standard)
+ Documenting jingwei-llm-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\runtime)
+ Documenting jingwei-action v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\agent\action)
+ Documenting jingwei-tool-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\runtime)
+ Documenting jingwei-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\runtime)
+ Documenting jingwei-journal-jsonl v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\jsonl)
+ Documenting jingwei-agent-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\agent)
+ Documenting jingwei-session-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\runtime)
+ Documenting jingwei-plugin v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\plugin\plugin)
+ Documenting jingwei-agent v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\agent)
+ Documenting jingwei-tool v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\tool)
+ Documenting jingwei-budget-file v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\budget\file)
+ Documenting jingwei-llm v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\llm)
+ Documenting jingwei-budget v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\budget)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.59s
+   Generated C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\target\doc\jingwei\index.html and 17 other files

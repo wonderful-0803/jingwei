@@ -4,6 +4,7 @@
 #![doc = include_str!("../../../docs/guide/src/task-budget.md")]
 #![doc = include_str!("../../../docs/guide/src/model-scheduling.md")]
 #![doc = include_str!("../../../docs/guide/src/budget-checkpoints.md")]
+#![doc = include_str!("../../../docs/guide/src/file-checkpoint-store.md")]
 
 #[cfg(test)]
 mod actions;
@@ -13,6 +14,9 @@ mod budget;
 
 #[cfg(test)]
 mod checkpoint;
+
+#[cfg(test)]
+mod checkpoint_file;
 
 #[cfg(test)]
 mod scheduler;

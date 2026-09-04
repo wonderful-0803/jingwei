@@ -763,6 +763,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jingwei-budget-file"
+version = "0.1.0"
+dependencies = [
+ "jingwei-budget",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "jingwei-core"
 version = "0.1.0"
 dependencies = [
@@ -837,6 +847,7 @@ dependencies = [
  "futures",
  "jingwei",
  "jingwei-agent-runtime",
+ "jingwei-budget-file",
  "jingwei-core",
  "jingwei-llm-runtime",
  "jingwei-openai",

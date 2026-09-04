@@ -14,6 +14,7 @@ jingwei-tool-runtime = { path = "../../crates/tools/runtime" }
 jingwei-session-runtime = { path = "../../crates/session/runtime" }
 jingwei-agent-runtime = { path = "../../crates/runtime/agent" }
 jingwei-core = { path = "../../crates/core/core" }
+jingwei-budget-file = { path = "../../crates/budget/file" }
 jingwei-llm-runtime = { path = "../../crates/llm/runtime" }
 jingwei-openai = { path = "../../crates/llm/openai" }
 futures = "0.3"

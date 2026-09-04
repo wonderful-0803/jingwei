@@ -6,4 +6,5 @@
 - [单步动作执行](action-step.md)
 - [任务预算账本](task-budget.md)
 - [预算快照与恢复原语](budget-checkpoints.md)
+- [文件检查点存储](file-checkpoint-store.md)
 - [开发环境与兼容性](development.md)
