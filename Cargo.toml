@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/sdk/facade",
     "crates/core/core",
+    "crates/core/budget",
     "crates/core/agent",
     "crates/agent/action",
     "crates/llm/llm",
@@ -45,6 +46,7 @@ exclude = [
 [workspace.dependencies]
 jingwei = { path = "crates/sdk/facade", version = "=0.1.0" }
 jingwei-core = { path = "crates/core/core", version = "=0.1.0" }
+jingwei-budget = { path = "crates/core/budget", version = "=0.1.0" }
 jingwei-agent = { path = "crates/core/agent", version = "=0.1.0" }
 jingwei-action = { path = "crates/agent/action", version = "=0.1.0" }
 jingwei-llm = { path = "crates/llm/llm", version = "=0.1.0" }

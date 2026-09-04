@@ -16,6 +16,7 @@ description = "Jingwei Rust Agent Harness 公共 façade"
 [dependencies]
 jingwei-action = { workspace = true, optional = true }
 jingwei-agent = { workspace = true }
+jingwei-budget = { workspace = true }
 jingwei-core = { workspace = true }
 jingwei-llm = { workspace = true }
 jingwei-plugin = { workspace = true }

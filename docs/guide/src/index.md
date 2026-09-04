@@ -11,6 +11,7 @@ Jingwei 是面向端侧小模型的 Rust Agent 运行框架。它提供可组合
 1. 查看[开发环境与兼容性](development.md)，了解当前源码版本和 Rust 要求。
 2. 阅读[模型生成](model-protocol.md)，接入文本/流式输出并理解结构化结果与工具权限的边界。
 3. 阅读[单步动作执行](action-step.md)，理解 CallTool、Final、AskUser 与规范证据。
-4. 后续按实现进度补充完整装配入门、上下文、参考 Agent、任务预算及恢复教程。
+4. 阅读[任务预算](task-budget.md)，使用共享内存账本并理解预留、用量可信度与停止边界。
+5. 后续按实现进度补充完整装配入门、上下文、参考 Agent、运行时预算接入及恢复教程。
 
 本指南是独立于源码的 Markdown。文档站构建配置和完整入门流程尚未交付；API reference 可运行 cargo doc --workspace --no-deps 生成。不要将这一开发快照当作已发布的完整 v0.1。

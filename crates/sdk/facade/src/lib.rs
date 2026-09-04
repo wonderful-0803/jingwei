@@ -13,6 +13,11 @@ pub mod agent {
     pub use jingwei_agent::*;
 }
 
+/// 任务预算词汇与共享内存账本。
+pub mod budget {
+    pub use jingwei_budget::*;
+}
+
 /// 事件信封与业务无关事件词汇。
 pub mod event {
     pub use jingwei_core::event::*;

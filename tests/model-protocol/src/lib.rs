@@ -1,9 +1,13 @@
 //! Internal protocol verification, excluded from public Git and Cargo delivery.
 #![doc = include_str!("../../../docs/guide/src/model-protocol.md")]
 #![doc = include_str!("../../../docs/guide/src/action-step.md")]
+#![doc = include_str!("../../../docs/guide/src/task-budget.md")]
 
 #[cfg(test)]
 mod actions;
+
+#[cfg(test)]
+mod budget;
 
 #[cfg(test)]
 mod tests {

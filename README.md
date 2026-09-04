@@ -7,8 +7,9 @@ Jingwei 提供稳定的 Agent、会话、模型、工具与插件词汇，以及
 
 v0版本目标是让进程内 Agent 组合清楚、可检查，而不是用隐式配置替代应用决策。
 
-当前工作区正在开发 v0.1。新增统一模型协议和可选 `jingwei-action` 单步动作组件，
-入口见[开发指南](docs/guide/src/index.md)与[单步动作执行](docs/guide/src/action-step.md)。
+当前工作区正在开发 v0.1。新增统一模型协议、可选 `jingwei-action` 单步动作组件与共享内存预算账本，
+入口见[开发指南](docs/guide/src/index.md)、[单步动作执行](docs/guide/src/action-step.md)与[任务预算](docs/guide/src/task-budget.md)。
+预算账本尚未自动接入 runtime，也尚未实现持久恢复。
 这些开发功能不包含在下方固定的旧提交中；使用新功能须基于同一个实际取得的源码快照，
 不能把当前进度理解为已发布到 crates.io 的完整 v0.1。
 
@@ -26,6 +27,10 @@ cargo check --workspace --all-targets --all-features --locked
 
 开发指南保持在独立的 `docs/guide`，测试工程保持在 `tests/model-protocol`。
 开发资产入 Git 不改变 Cargo 包的排除规则；正式交付仍需单独核验包内容。
+
+Linux 环境可运行 `bash scripts/check-baseline.sh`（需 Python 3），执行两个 workspace 的
+9 项离线检查并保存日志到 `results/baseline`。首次执行前准备指定工具链，并对主 workspace
+和 `tests/model-protocol/Cargo.toml` 分别执行 `cargo fetch --locked`；协议测试需允许本机回环端口。
 
 ## Why Jingwei?
 
@@ -137,6 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `jingwei-journal-jsonl` | 由应用选择的 append-only JSONL `SessionPersistence` provider。 |
 | `jingwei-openai` | 可选的 OpenAI-compatible 原始 LLM provider，适用于 `/chat/completions` 端点。 |
 | `jingwei-action` | 可选单步动作组件：原生/JSON 协议、CallTool/Final/AskUser、受控执行及证据关联；通过 façade 的 `actions` feature 启用。 |
+| `jingwei-budget` | 轻量共享 Task 预算账本：原子预留、保守结算、跨 run 累计与时间报告；通过 `jingwei::budget` 访问，不负责执行调度或持久恢复。 |
 
 `tokio`、Agent 实现、provider 配置和数据目录都属于宿主应用。若应用需要工具能力，
 应显式添加对应的 tool provider 与 runtime 选择；安装 `jingwei-standard` 本身不会启用工具循环。

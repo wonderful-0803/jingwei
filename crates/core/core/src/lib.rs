@@ -3,6 +3,7 @@
 //! 本 crate 只包含"语言"：ID、事件、错误分类与 post-commit EventObserver 契约。
 //! 不依赖任何传输/IO 具体实现（不变式 6：依赖方向门禁在 CI 断言）。
 
+pub mod budget;
 pub mod cancellation;
 pub mod capability;
 pub mod decision;

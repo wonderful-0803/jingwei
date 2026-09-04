@@ -697,6 +697,7 @@ version = "0.1.0"
 dependencies = [
  "jingwei-action",
  "jingwei-agent",
+ "jingwei-budget",
  "jingwei-core",
  "jingwei-llm",
  "jingwei-plugin",
@@ -751,6 +752,14 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "jingwei-budget"
+version = "0.1.0"
+dependencies = [
+ "jingwei-core",
+ "thiserror",
 ]
 
 [[package]]
