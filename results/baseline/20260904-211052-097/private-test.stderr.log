@@ -1,0 +1,29 @@
+   Compiling tokio v1.53.1
+   Compiling jingwei-core v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\core)
+   Compiling jingwei-session v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\session)
+   Compiling jingwei-budget v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\budget)
+   Compiling jingwei-tool v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\tool)
+   Compiling tokio-util v0.7.19
+   Compiling tokio-native-tls v0.3.1
+   Compiling tower v0.5.3
+   Compiling jingwei-llm v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\llm)
+   Compiling h2 v0.4.19
+   Compiling tower-http v0.6.11
+   Compiling jingwei-agent v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\agent)
+   Compiling jingwei-action v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\agent\action)
+   Compiling jingwei-plugin v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\plugin\plugin)
+   Compiling jingwei-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\runtime)
+   Compiling hyper v1.11.1
+   Compiling jingwei v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\sdk\facade)
+   Compiling jingwei-tool-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\runtime)
+   Compiling hyper-util v0.1.20
+   Compiling jingwei-agent-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\agent)
+   Compiling hyper-tls v0.6.0
+   Compiling reqwest v0.12.28
+   Compiling jingwei-llm-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\runtime)
+   Compiling jingwei-openai v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\openai)
+   Compiling jingwei-session-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\runtime)
+   Compiling jingwei-private-protocol-tests v0.0.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\tests\model-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.65s
+     Running unittests src\lib.rs (target\debug\deps\jingwei_private_protocol_tests-ed029c6b30dd4195.exe)
+   Doc-tests jingwei_private_protocol_tests

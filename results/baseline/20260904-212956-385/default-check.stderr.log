@@ -1,0 +1,10 @@
+    Checking jingwei-core v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\core)
+    Checking jingwei-budget v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\budget)
+    Checking jingwei-session v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\session)
+    Checking jingwei-llm v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\llm\llm)
+    Checking jingwei-tool v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\tool)
+    Checking jingwei-agent v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\core\agent)
+    Checking jingwei-plugin v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\plugin\plugin)
+    Checking jingwei-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\runtime)
+    Checking jingwei v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\sdk\facade)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.23s

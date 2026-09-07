@@ -1,0 +1,19 @@
+[package]
+name = "jingwei-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-session"
+description = "Jingwei SessionRuntime、SessionPersistence 与会话轨迹契约"
+
+[dependencies]
+jingwei-core = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }

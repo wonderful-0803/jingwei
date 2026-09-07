@@ -1,0 +1,24 @@
+[package]
+name = "jingwei-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-agent"
+description = "Agent 词汇：Agent trait 与 AgentContext seam（插件只依赖这里的词汇）"
+
+[dependencies]
+jingwei-core = { workspace = true }
+jingwei-llm = { workspace = true }
+jingwei-session = { workspace = true }
+jingwei-tool = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

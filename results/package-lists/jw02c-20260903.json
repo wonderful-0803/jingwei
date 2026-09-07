@@ -1,0 +1,217 @@
+{
+  "stage": "JW-02-c",
+  "packages": [
+    {
+      "Package": "jingwei",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-action",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src\\lib.rs",
+        "src\\protocol.rs",
+        "src\\step.rs",
+        "src\\validation.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-core",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/cancellation.rs",
+        "src/capability.rs",
+        "src/decision.rs",
+        "src/event.rs",
+        "src/id.rs",
+        "src/lib.rs",
+        "src/model.rs",
+        "src/observer.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-llm",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-session",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-tool",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-agent",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-plugin",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/graph.rs",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-runtime",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-agent-runtime",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-journal-jsonl",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-session-runtime",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/coordinator.rs",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-llm-runtime",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs",
+        "src/validation.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-openai",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs",
+        "src/sse.rs",
+        "src/wire.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-tool-runtime",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    },
+    {
+      "Package": "jingwei-standard",
+      "PublicPathCheck": "passed",
+      "Listing": [
+        ".cargo_vcs_info.json",
+        "Cargo.lock",
+        "Cargo.toml",
+        "Cargo.toml.orig",
+        "README.md",
+        "src/lib.rs"
+      ]
+    }
+  ],
+  "limitations": [
+    "List-only check, not actual .crate build validation.",
+    "Existing 14 inline tests remain in public source; all added tests are private.",
+    "Cargo-generated Cargo.lock can appear independently of the workspace lockfile."
+  ]
+}

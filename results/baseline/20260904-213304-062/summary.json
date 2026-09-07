@@ -1,0 +1,74 @@
+[
+  {
+    "Name": "fmt",
+    "Command": "cargo fmt --all -- --check",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.51,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\fmt.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\fmt.stderr.log"
+  },
+  {
+    "Name": "check",
+    "Command": "cargo check --workspace --all-targets --all-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.54,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\check.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\check.stderr.log"
+  },
+  {
+    "Name": "default-check",
+    "Command": "cargo check --package jingwei --no-default-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.33,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\default-check.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\default-check.stderr.log"
+  },
+  {
+    "Name": "test",
+    "Command": "cargo test --workspace --all-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 3.22,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\test.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\test.stderr.log"
+  },
+  {
+    "Name": "clippy",
+    "Command": "cargo clippy --workspace --all-targets --all-features --locked --offline --jobs 4 -- -D warnings",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.77,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\clippy.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\clippy.stderr.log"
+  },
+  {
+    "Name": "doc",
+    "Command": "cargo doc --workspace --all-features --no-deps --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.81,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\doc.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\doc.stderr.log"
+  },
+  {
+    "Name": "private-fmt",
+    "Command": "cargo fmt --manifest-path tests/model-protocol/Cargo.toml -- --check",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.36,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\private-fmt.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\private-fmt.stderr.log"
+  },
+  {
+    "Name": "private-test",
+    "Command": "cargo test --manifest-path tests/model-protocol/Cargo.toml --locked --offline --target-dir target --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 4.41,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\private-test.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\private-test.stderr.log"
+  },
+  {
+    "Name": "private-clippy",
+    "Command": "cargo clippy --manifest-path tests/model-protocol/Cargo.toml --all-targets --locked --offline --target-dir target --jobs 4 -- -D warnings",
+    "ExitCode": 0,
+    "ElapsedSeconds": 1.67,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\private-clippy.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260904-213304-062\\private-clippy.stderr.log"
+  }
+]

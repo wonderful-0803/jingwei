@@ -3,8 +3,8 @@
 //! 设计纪律（吸收 writing-rust 的教训）：
 //! - 错误词汇不得携带 reqwest/HTTP 具体类型（`ModelGatewayError` 携带
 //!   `reqwest::Error` 是反面教材）；
-//! - 取消令牌是流式接口的**强制参数**，默认实现不得静默丢弃
-//!   （writing-rust 的 `complete_stream_with_cancellation` 在真实实现里丢了 token）。
+//! - 原始生成接口都显式接收取消令牌，适配器不得静默丢弃；
+//! - 文本与结构化输出共用请求、响应和类型化流式协议。
 
 use std::error::Error;
 use std::fmt;
@@ -14,13 +14,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::Stream;
+use jingwei_budget::{BudgetError, BudgetReport, BudgetScope};
 use jingwei_core::{CancellationSignal, CapabilityId, SessionEvent, SessionEventKind};
 use jingwei_session::SessionRuntimeError;
 use tokio_util::sync::CancellationToken;
 
+mod budget;
+mod scheduling;
+pub use budget::*;
+pub use scheduling::*;
+
+pub use jingwei_core::model::*;
 pub use jingwei_core::{
-    ChatMessage, ModelCallMode, ModelFailureCategory, ModelRecordedOutcome, ModelRequest,
-    ModelRequestOptions, ModelResult, ModelTimeout, Role,
+    ModelCallMode, ModelFailureCategory, ModelRecordedOutcome, ModelRequest, ModelRequestOptions,
+    ModelResult, ModelTimeout,
 };
 
 /// The singular capability implemented by model provider plugins.
@@ -29,17 +36,17 @@ pub const LLM_PROVIDER: CapabilityId = CapabilityId::new("jingwei.llm.provider")
 /// The singular controlled model runtime capability.
 pub const LLM_RUNTIME: CapabilityId = CapabilityId::new("jingwei.llm.runtime");
 
-/// 单次调用的可选运行参数；默认值表示沿用提供方全局配置。
+/// 单次调用参数。可选字段沿用运行时/提供方配置，收集上限始终显式生效。
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct LlmCallOptions {
+pub struct GenerationOptions {
+    /// Host-assigned correlation, recorded but never sent as model input.
+    pub context: Option<jingwei_core::DecisionContext>,
     pub max_tokens: Option<u32>,
+    /// Canonical runtime: None inherits its finite timeout; explicit values can only
+    /// tighten it. The deadline starts at admission, before queueing and recording.
+    /// Raw providers still receive this effective duration unchanged.
     pub timeout: Option<Duration>,
-}
-
-/// 非流式补全结果。
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LlmCompletion {
-    pub content: String,
+    pub limits: GenerationLimits,
 }
 
 /// 模型错误词汇（框架级分类，与传输无关）。
@@ -51,8 +58,8 @@ pub enum LlmError {
     Timeout,
     #[error("stream parse failed: {0}")]
     StreamParse(String),
-    #[error("response missing content")]
-    MissingContent,
+    #[error("model protocol rejected: {0}")]
+    Protocol(#[from] ModelProtocolError),
     /// 取消是一等错误，不是旁路（不变式 4）。
     #[error("cancelled")]
     Cancelled,
@@ -88,6 +95,7 @@ pub trait ModelEventRecorder: Send + Sync {
 pub struct ModelTurnBinding {
     cancellation: Arc<dyn CancellationSignal>,
     recorder: Arc<dyn ModelEventRecorder>,
+    budget: Option<BudgetScope>,
 }
 
 impl ModelTurnBinding {
@@ -98,6 +106,7 @@ impl ModelTurnBinding {
         Self {
             cancellation,
             recorder,
+            budget: None,
         }
     }
 
@@ -109,8 +118,30 @@ impl ModelTurnBinding {
         Arc::clone(&self.recorder)
     }
 
+    /// Bind the host-owned run shared with Agent and Tool runtimes.
+    #[must_use]
+    pub fn with_budget(mut self, budget: BudgetScope) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
+    pub fn budget(&self) -> Option<&BudgetScope> {
+        self.budget.as_ref()
+    }
+
     pub fn into_parts(self) -> (Arc<dyn CancellationSignal>, Arc<dyn ModelEventRecorder>) {
         (self.cancellation, self.recorder)
+    }
+
+    /// Runtime implementations must use this method to retain budget authority.
+    pub fn into_budget_parts(
+        self,
+    ) -> (
+        Arc<dyn CancellationSignal>,
+        Arc<dyn ModelEventRecorder>,
+        Option<BudgetScope>,
+    ) {
+        (self.cancellation, self.recorder, self.budget)
     }
 }
 
@@ -135,13 +166,15 @@ pub enum ModelRecordFailure {
     Session(#[source] SessionRuntimeError),
     #[error("canonical model recorder panicked")]
     RecorderPanicked,
+    #[error("canonical model event does not match its budget binding")]
+    Budget(#[source] BudgetError),
 }
 
 impl ModelRecordFailure {
     pub fn source_error(&self) -> Option<&SessionRuntimeError> {
         match self {
             Self::Session(source) => Some(source),
-            Self::RecorderPanicked => None,
+            Self::RecorderPanicked | Self::Budget(_) => None,
         }
     }
 }
@@ -165,15 +198,17 @@ impl fmt::Debug for ModelClosureFailure {
                 ModelFailureCategory::Upstream => "failed_upstream",
                 ModelFailureCategory::Timeout => "failed_timeout",
                 ModelFailureCategory::StreamParse => "failed_stream_parse",
-                ModelFailureCategory::MissingContent => "failed_missing_content",
+                ModelFailureCategory::Protocol => "failed_protocol",
                 ModelFailureCategory::Cancelled => "failed_cancelled",
                 ModelFailureCategory::Adapter => "failed_adapter",
                 ModelFailureCategory::Internal => "failed_internal",
+                ModelFailureCategory::Budget => "failed_budget",
             },
         });
         let source = match self.source {
             ModelRecordFailure::Session(_) => "session",
             ModelRecordFailure::RecorderPanicked => "recorder_panicked",
+            ModelRecordFailure::Budget(_) => "budget",
         };
         formatter
             .debug_struct("ModelClosureFailure")
@@ -200,6 +235,18 @@ impl ModelClosureFailure {
 
     pub fn result_recorder_panicked(request: ModelRequest, result: ModelResult) -> Self {
         Self::result_failure(request, result, ModelRecordFailure::RecorderPanicked)
+    }
+
+    pub fn request_budget_failure(request: ModelRequest, source: BudgetError) -> Self {
+        Self::request_failure(request, ModelRecordFailure::Budget(source))
+    }
+
+    pub fn result_budget_failure(
+        request: ModelRequest,
+        result: ModelResult,
+        source: BudgetError,
+    ) -> Self {
+        Self::result_failure(request, result, ModelRecordFailure::Budget(source))
     }
 
     fn request_failure(request: ModelRequest, source: ModelRecordFailure) -> Self {
@@ -248,10 +295,20 @@ impl ModelClosureFailure {
 /// Turn binding/admission failure from the selected model runtime.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ModelRuntimeError {
+    #[error(transparent)]
+    Budget(#[from] BudgetError),
     #[error("model runtime is stopped")]
     Stopped,
     #[error("model turn is closed")]
     TurnClosed,
+    #[error("model scheduler is overloaded: {capacity:?}")]
+    Overloaded { capacity: ModelOverloadKind },
+    #[error("model request exceeds {limit_bytes} serialized bytes")]
+    RequestTooLarge { limit_bytes: usize },
+    #[error("model request timed out waiting for an execution slot")]
+    QueueTimeout,
+    #[error("model timeout exceeds the executor clock range")]
+    InvalidTimeout,
     #[error("model runtime internal failure `{code}`: {message}")]
     Internal { code: String, message: String },
 }
@@ -273,12 +330,15 @@ impl fmt::Debug for ModelGatewayError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = formatter.debug_struct("ModelGatewayError");
         match self {
+            Self::Runtime(ModelRuntimeError::Budget(error)) => {
+                debug.field("kind", &"model_budget").field("error", error)
+            }
             Self::Model(LlmError::Upstream { status, .. }) => debug
                 .field("kind", &"model_upstream")
                 .field("status", status),
             Self::Model(LlmError::Timeout) => debug.field("kind", &"model_timeout"),
             Self::Model(LlmError::StreamParse(_)) => debug.field("kind", &"model_stream_parse"),
-            Self::Model(LlmError::MissingContent) => debug.field("kind", &"model_missing_content"),
+            Self::Model(LlmError::Protocol(_)) => debug.field("kind", &"model_protocol"),
             Self::Model(LlmError::Cancelled) => debug.field("kind", &"model_cancelled"),
             Self::Model(LlmError::Adapter(_)) => debug.field("kind", &"model_adapter"),
             Self::Runtime(ModelRuntimeError::Stopped) => {
@@ -286,6 +346,18 @@ impl fmt::Debug for ModelGatewayError {
             }
             Self::Runtime(ModelRuntimeError::TurnClosed) => {
                 debug.field("kind", &"model_turn_closed")
+            }
+            Self::Runtime(ModelRuntimeError::Overloaded { capacity }) => debug
+                .field("kind", &"model_overloaded")
+                .field("capacity", capacity),
+            Self::Runtime(ModelRuntimeError::RequestTooLarge { limit_bytes }) => debug
+                .field("kind", &"model_request_too_large")
+                .field("limit_bytes", limit_bytes),
+            Self::Runtime(ModelRuntimeError::QueueTimeout) => {
+                debug.field("kind", &"model_queue_timeout")
+            }
+            Self::Runtime(ModelRuntimeError::InvalidTimeout) => {
+                debug.field("kind", &"model_invalid_timeout")
             }
             Self::Runtime(ModelRuntimeError::Internal { code, .. }) => debug
                 .field("kind", &"model_runtime_internal")
@@ -392,7 +464,8 @@ impl fmt::Display for ModelTurnFailure {
 impl Error for ModelTurnFailure {}
 
 /// 流式 delta 输出。
-pub type LlmDeltaStream = Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>;
+pub type GenerationStream =
+    Pin<Box<dyn Stream<Item = Result<GenerationStreamEvent, LlmError>> + Send>>;
 
 /// A borrowed asynchronous model operation.
 pub type LlmFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -401,27 +474,38 @@ pub type LlmFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type ModelFuture<'a, T> = LlmFuture<'a, T>;
 
 /// A stream whose lifetime is bounded by its borrowed gateway.
-pub type ModelDeltaStream<'a> =
-    Pin<Box<dyn Stream<Item = Result<String, ModelGatewayError>> + Send + 'a>>;
+pub type ModelStream<'a> =
+    Pin<Box<dyn Stream<Item = Result<GenerationStreamEvent, ModelGatewayError>> + Send + 'a>>;
 
 /// Turn-scoped model access with cancellation and timeout policy owned by the runtime.
 pub trait ModelGateway: Send + Sync {
-    fn complete<'a>(
-        &'a self,
-        messages: &'a [ChatMessage],
-        options: LlmCallOptions,
-    ) -> ModelFuture<'a, Result<LlmCompletion, ModelGatewayError>>;
+    /// Pure capability metadata; must not initiate IO or activate a provider.
+    /// Unknown capabilities are rejected during controlled generation preflight.
+    fn capabilities(&self) -> ModelCapabilities {
+        ModelCapabilities::default()
+    }
 
-    fn complete_stream<'a>(
+    fn generate<'a>(
         &'a self,
-        messages: Vec<ChatMessage>,
-        options: LlmCallOptions,
-    ) -> ModelDeltaStream<'a>;
+        request: &'a GenerationRequest,
+        options: GenerationOptions,
+    ) -> ModelFuture<'a, Result<GenerationResponse, ModelGatewayError>>;
+
+    fn generate_stream<'a>(
+        &'a self,
+        request: GenerationRequest,
+        options: GenerationOptions,
+    ) -> ModelStream<'a>;
 }
 
 /// Host-owned model scope for one admitted Agent turn.
 pub trait ModelTurn: Send + Sync {
     fn gateway(&self) -> &dyn ModelGateway;
+
+    /// Read-only accounting observation, including a canonical runtime's default scope.
+    fn budget_report(&self) -> Option<Result<BudgetReport, BudgetError>> {
+        None
+    }
 
     fn finish(
         self: Box<Self>,
@@ -433,22 +517,34 @@ pub trait ModelTurn: Send + Sync {
 pub trait LlmRuntime: Send + Sync {
     fn bind_turn(&self, binding: ModelTurnBinding)
     -> Result<Box<dyn ModelTurn>, ModelRuntimeError>;
+
+    /// Optional in-memory scheduling observation. Custom runtimes may not provide it.
+    fn scheduler_snapshot(&self) -> Option<ModelSchedulerSnapshot> {
+        None
+    }
 }
 
 /// 模型能力 seam。提供方适配器（OpenAI/llama.cpp、本地推理等）实现本 trait。
 pub trait Llm: Send + Sync {
-    fn complete<'a>(
+    /// Pure metadata for this adapter and host configuration, without probing.
+    /// Unknown support must never be treated as permission to silently downgrade.
+    fn capabilities(&self) -> ModelCapabilities {
+        ModelCapabilities::default()
+    }
+
+    fn generate<'a>(
         &'a self,
-        messages: &'a [ChatMessage],
-        opts: LlmCallOptions,
-    ) -> Pin<Box<dyn Future<Output = Result<LlmCompletion, LlmError>> + Send + 'a>>;
+        request: &'a GenerationRequest,
+        opts: GenerationOptions,
+        cancel: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = Result<GenerationResponse, LlmError>> + Send + 'a>>;
 
     /// 流式补全。`cancel` 触发后必须尽快停止产生新的 delta 并返回
     /// `LlmError::Cancelled`。
-    fn complete_stream(
+    fn generate_stream(
         &self,
-        messages: Vec<ChatMessage>,
-        opts: LlmCallOptions,
+        request: GenerationRequest,
+        opts: GenerationOptions,
         cancel: CancellationToken,
-    ) -> LlmDeltaStream;
+    ) -> GenerationStream;
 }

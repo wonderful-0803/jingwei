@@ -1,0 +1,6 @@
+   Compiling jingwei-budget v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/budget)
+   Compiling jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+   Compiling jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.00s
+     Running unittests src/lib.rs (target/debug/deps/jingwei_private_protocol_tests-b8b7f78a8c75e27b)
+   Doc-tests jingwei_private_protocol_tests

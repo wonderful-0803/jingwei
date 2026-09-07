@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/jingwei-63b923551dd9700f)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_action-662d26b0752a8922)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_agent-54ef1fe9e3ee78e5)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_agent_runtime-605cae6430790eae)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_budget-0bd42e491838f9cf)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_core-10e8d9f3592e57e3)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_journal_jsonl-01ef3fe25e5b21ec)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_llm-f593f79f2e44ee0e)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_llm_runtime-17d10602b7f5eab7)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_openai-2d73ae55d5fd7e42)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_plugin-9128e5eae2a112a8)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_runtime-d1570e8547685e35)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_session-c62ecfa18d3f64bf)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_session_runtime-63f31c0009f4c9b0)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_standard-f9601a6c63e7e36d)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_tool-ae5cbb8eeed17f3b)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_tool_runtime-eba3f7f225b426ee)
+   Doc-tests jingwei
+   Doc-tests jingwei_action
+   Doc-tests jingwei_agent
+   Doc-tests jingwei_agent_runtime
+   Doc-tests jingwei_budget
+   Doc-tests jingwei_core
+   Doc-tests jingwei_journal_jsonl
+   Doc-tests jingwei_llm
+   Doc-tests jingwei_llm_runtime
+   Doc-tests jingwei_openai
+   Doc-tests jingwei_plugin
+   Doc-tests jingwei_runtime
+   Doc-tests jingwei_session
+   Doc-tests jingwei_session_runtime
+   Doc-tests jingwei_standard
+   Doc-tests jingwei_tool
+   Doc-tests jingwei_tool_runtime

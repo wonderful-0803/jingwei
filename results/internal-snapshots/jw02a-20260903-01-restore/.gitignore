@@ -1,0 +1,35 @@
+# Public source and isolated developer-guide inputs.
+# Internal examples, tests, fixtures and engineering material remain private.
+# These rules do not remove files or test code already tracked in source files.
+/.agents/
+/.codex/
+/.github/
+/.trellis/
+/AGENTS.md
+/CONTEXT.md
+/.gitattributes
+/apps/
+/crates/support/
+/examples/
+/scripts/
+/sessions/
+/target/
+/Cargo.lock
+/results/
+
+# Only the developer-guide area is public; other documentation stays private.
+/docs/*
+!/docs/README.md
+!/docs/guide/
+/docs/guide/book/
+/docs/guide/target/
+/docs/guide/.cache/
+
+# Standalone validation assets are not part of public Git or release delivery.
+**/tests/
+**/benches/
+**/fixtures/
+**/fixture/
+*.jsonl
+*.jsonl.tmp
+**/*.rs.bk

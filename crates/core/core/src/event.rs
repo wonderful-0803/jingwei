@@ -6,9 +6,13 @@
 
 use std::time::Duration;
 
+use crate::decision::{ActionContext, DecisionContext};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::id::{EventId, GenerationId, MessageId, ModelCallId, SessionId, TurnId};
+use crate::model::{
+    GenerationLimits, GenerationPartial, GenerationRequest, GenerationResponse, ModelRecordVersion,
+};
 
 /// 阶段进度状态。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -27,57 +31,6 @@ pub enum DoneStatus {
     /// 等待用户补充输入后继续（对齐 writing-rust 的 grill-me 挂起语义）。
     WaitingForInput,
     Cancelled,
-}
-
-/// Transport-free role shared by raw model adapters and canonical Session records.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-    Tool,
-}
-
-impl Role {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::User => "user",
-            Self::Assistant => "assistant",
-            Self::Tool => "tool",
-        }
-    }
-}
-
-/// One exact model-visible message.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ChatMessage {
-    pub role: Role,
-    pub content: String,
-}
-
-impl ChatMessage {
-    pub fn system(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::System,
-            content: content.into(),
-        }
-    }
-
-    pub fn user(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::User,
-            content: content.into(),
-        }
-    }
-
-    pub fn assistant(content: impl Into<String>) -> Self {
-        Self {
-            role: Role::Assistant,
-            content: content.into(),
-        }
-    }
 }
 
 /// Whether the controlled model call requested one completion or a stream.
@@ -142,19 +95,24 @@ impl<'de> Deserialize<'de> for ModelTimeout {
     }
 }
 
-/// Effective controlled options that were supplied to the raw model adapter.
+/// Effective controlled options supplied unchanged if execution reaches the raw adapter.
+/// A request record alone does not prove that provider execution began.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelRequestOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<DecisionContext>,
     pub max_tokens: Option<u32>,
     pub timeout: Option<ModelTimeout>,
+    pub limits: GenerationLimits,
 }
 
 /// Canonical request recorded before the raw model adapter is invoked.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelRequest {
+    pub version: ModelRecordVersion,
     pub call_id: ModelCallId,
     pub mode: ModelCallMode,
-    pub messages: Vec<ChatMessage>,
+    pub input: GenerationRequest,
     pub options: ModelRequestOptions,
 }
 
@@ -165,10 +123,11 @@ pub enum ModelFailureCategory {
     Upstream,
     Timeout,
     StreamParse,
-    MissingContent,
+    Protocol,
     Cancelled,
     Adapter,
     Internal,
+    Budget,
 }
 
 /// Replayable terminal outcome of one canonical model call.
@@ -176,7 +135,7 @@ pub enum ModelFailureCategory {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ModelRecordedOutcome {
     Succeeded {
-        content: String,
+        response: GenerationResponse,
     },
     Failed {
         category: ModelFailureCategory,
@@ -184,13 +143,14 @@ pub enum ModelRecordedOutcome {
         message: String,
         retryable: bool,
         upstream_status: Option<u16>,
-        partial_content: String,
+        partial: GenerationPartial,
     },
 }
 
 /// Canonical result paired to one [`ModelRequest`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelResult {
+    pub version: ModelRecordVersion,
     pub call_id: ModelCallId,
     pub outcome: ModelRecordedOutcome,
 }
@@ -198,6 +158,8 @@ pub struct ModelResult {
 /// 工具调用的线格式（jingwei-tool 直接复用，避免重复定义）。
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<ActionContext>,
     pub id: String,
     pub name: String,
     pub arguments: serde_json::Value,
@@ -241,6 +203,7 @@ pub enum ToolFailureCategory {
     BodyFailure,
     BodyPanic,
     OutputLimit,
+    Budget,
 }
 
 /// 一次会话事件。所有字段由 Harness 的回合运行时补齐；
@@ -282,6 +245,9 @@ pub enum SessionEventKind {
     },
     ToolResult {
         result: ToolResult,
+    },
+    TaskRunReport {
+        report: Box<crate::budget::TaskRunReport>,
     },
     StageProgress {
         stage: String,
@@ -350,96 +316,6 @@ mod tests {
                 ..
             }
         ));
-    }
-
-    #[test]
-    fn model_request_has_exact_json_and_precise_timeout() {
-        let timeout = ModelTimeout::try_new(12, 345_678_901).unwrap();
-        assert_eq!(timeout.secs(), 12);
-        assert_eq!(timeout.nanos(), 345_678_901);
-        assert_eq!(
-            ModelTimeout::from_duration(Duration::new(12, 345_678_901)),
-            timeout
-        );
-
-        let event = event(SessionEventKind::ModelRequest {
-            request: ModelRequest {
-                call_id: ModelCallId::from("mcall_1"),
-                mode: ModelCallMode::Complete,
-                messages: vec![
-                    ChatMessage::system("You are exact."),
-                    ChatMessage::user("hello"),
-                ],
-                options: ModelRequestOptions {
-                    max_tokens: Some(512),
-                    timeout: Some(timeout),
-                },
-            },
-        });
-        let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(
-            json,
-            r#"{"event_id":"evt_1","session_id":"sess_1","turn_id":"turn_1","seq":0,"kind":{"type":"model_request","request":{"call_id":"mcall_1","mode":"complete","messages":[{"role":"system","content":"You are exact."},{"role":"user","content":"hello"}],"options":{"max_tokens":512,"timeout":{"secs":12,"nanos":345678901}}}}}"#
-        );
-        assert_eq!(serde_json::from_str::<SessionEvent>(&json).unwrap(), event);
-    }
-
-    #[test]
-    fn model_results_have_exact_tagged_json() {
-        let cases = [
-            (
-                SessionEventKind::ModelResult {
-                    result: ModelResult {
-                        call_id: ModelCallId::from("mcall_success"),
-                        outcome: ModelRecordedOutcome::Succeeded {
-                            content: "hello".to_string(),
-                        },
-                    },
-                },
-                r#"{"type":"model_result","result":{"call_id":"mcall_success","outcome":{"status":"succeeded","content":"hello"}}}"#,
-            ),
-            (
-                SessionEventKind::ModelResult {
-                    result: ModelResult {
-                        call_id: ModelCallId::from("mcall_upstream"),
-                        outcome: ModelRecordedOutcome::Failed {
-                            category: ModelFailureCategory::Upstream,
-                            code: "model_upstream".to_string(),
-                            message: "Model provider rejected the request".to_string(),
-                            retryable: true,
-                            upstream_status: Some(429),
-                            partial_content: String::new(),
-                        },
-                    },
-                },
-                r#"{"type":"model_result","result":{"call_id":"mcall_upstream","outcome":{"status":"failed","category":"upstream","code":"model_upstream","message":"Model provider rejected the request","retryable":true,"upstream_status":429,"partial_content":""}}}"#,
-            ),
-            (
-                SessionEventKind::ModelResult {
-                    result: ModelResult {
-                        call_id: ModelCallId::from("mcall_cancelled"),
-                        outcome: ModelRecordedOutcome::Failed {
-                            category: ModelFailureCategory::Cancelled,
-                            code: "stream_consumer_dropped".to_string(),
-                            message: "Model stream consumer dropped".to_string(),
-                            retryable: false,
-                            upstream_status: None,
-                            partial_content: "hel".to_string(),
-                        },
-                    },
-                },
-                r#"{"type":"model_result","result":{"call_id":"mcall_cancelled","outcome":{"status":"failed","category":"cancelled","code":"stream_consumer_dropped","message":"Model stream consumer dropped","retryable":false,"upstream_status":null,"partial_content":"hel"}}}"#,
-            ),
-        ];
-
-        for (kind, expected) in cases {
-            let json = serde_json::to_string(&kind).unwrap();
-            assert_eq!(json, expected);
-            assert_eq!(
-                serde_json::from_str::<SessionEventKind>(&json).unwrap(),
-                kind
-            );
-        }
     }
 
     #[test]

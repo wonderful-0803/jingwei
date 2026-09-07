@@ -14,6 +14,7 @@ documentation = "https://docs.rs/jingwei-tool"
 description = "ToolRuntime and ToolGateway interface vocabulary for Jingwei"
 
 [dependencies]
+jingwei-budget = { workspace = true }
 jingwei-core = { workspace = true }
 jingwei-session = { workspace = true }
 serde = { workspace = true }

@@ -1,0 +1,31 @@
+   Compiling syn v3.0.4
+   Compiling serde_core v1.0.229
+    Checking futures-channel v0.3.34
+   Compiling serde v1.0.229
+    Checking slab v0.4.12
+   Compiling serde_json v1.0.151
+    Checking smallvec v1.16.0
+   Compiling syn v2.0.119
+    Checking parking_lot_core v0.9.12
+    Checking parking_lot v0.12.5
+   Compiling futures-macro v0.3.34
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+    Checking futures-util v0.3.34
+    Checking thiserror v2.0.20
+   Compiling tokio-macros v2.7.2
+    Checking tokio v1.53.1
+   Compiling tracing-attributes v0.1.31
+    Checking futures-executor v0.3.34
+    Checking futures v0.3.34
+    Checking tracing v0.1.44
+    Checking jingwei-core v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/core)
+    Checking jingwei-session v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/session)
+    Checking jingwei-tool v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/tool)
+    Checking tokio-util v0.7.19
+    Checking jingwei-llm v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/llm)
+    Checking jingwei-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/agent)
+    Checking jingwei-plugin v0.1.0 (/home/dd/luxiproject/jingwei/crates/plugin/plugin)
+    Checking jingwei-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/runtime)
+    Checking jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.44s

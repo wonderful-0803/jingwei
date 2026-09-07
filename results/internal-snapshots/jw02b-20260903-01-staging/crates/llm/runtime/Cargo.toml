@@ -1,0 +1,29 @@
+[package]
+name = "jingwei-llm-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-llm-runtime"
+description = "Canonical controlled ModelGateway implementation for Jingwei"
+
+[dependencies]
+jsonschema = { workspace = true }
+serde_json = { workspace = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+jingwei-core = { workspace = true }
+jingwei-llm = { workspace = true }
+jingwei-plugin = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+jingwei-session = { workspace = true }
+tokio = { workspace = true }

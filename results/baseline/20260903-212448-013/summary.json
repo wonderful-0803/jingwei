@@ -1,0 +1,42 @@
+[
+  {
+    "Name": "fmt",
+    "Command": "cargo fmt --all -- --check",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.38,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\fmt.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\fmt.stderr.log"
+  },
+  {
+    "Name": "check",
+    "Command": "cargo check --workspace --all-targets --all-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 44.05,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\check.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\check.stderr.log"
+  },
+  {
+    "Name": "test",
+    "Command": "cargo test --workspace --all-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 63.93,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\test.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\test.stderr.log"
+  },
+  {
+    "Name": "clippy",
+    "Command": "cargo clippy --workspace --all-targets --all-features --locked --offline --jobs 4 -- -D warnings",
+    "ExitCode": 0,
+    "ElapsedSeconds": 5.14,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\clippy.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\clippy.stderr.log"
+  },
+  {
+    "Name": "doc",
+    "Command": "cargo doc --workspace --all-features --no-deps --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 3.81,
+    "Stdout": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\doc.stdout.log",
+    "Stderr": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\baseline\\20260903-212448-013\\doc.stderr.log"
+  }
+]

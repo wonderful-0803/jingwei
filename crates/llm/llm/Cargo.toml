@@ -14,6 +14,7 @@ documentation = "https://docs.rs/jingwei-llm"
 description = "Llm 能力族接口：消息/补全词汇、错误分类、流式与取消契约"
 
 [dependencies]
+jingwei-budget = { workspace = true }
 jingwei-core = { workspace = true }
 jingwei-session = { workspace = true }
 futures = { workspace = true }

@@ -15,6 +15,7 @@ description = "Canonical controlled ToolRuntime implementation for Jingwei"
 
 [dependencies]
 futures.workspace = true
+jingwei-budget.workspace = true
 jingwei-core.workspace = true
 jingwei-plugin.workspace = true
 jingwei-tool.workspace = true

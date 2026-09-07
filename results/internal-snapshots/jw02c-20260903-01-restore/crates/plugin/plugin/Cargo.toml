@@ -1,0 +1,27 @@
+[package]
+name = "jingwei-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-plugin"
+description = "插件系统：事务式 Registrar、声明上下文与冻结注册表"
+
+[dependencies]
+futures = { workspace = true }
+jingwei-agent = { workspace = true }
+jingwei-core = { workspace = true }
+jingwei-llm = { workspace = true }
+jingwei-session = { workspace = true }
+jingwei-tool = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tokio-util = { workspace = true }

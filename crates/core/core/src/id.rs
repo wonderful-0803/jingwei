@@ -6,6 +6,8 @@
 //! - `ModelCallId`：一次模型调用，独立配对请求与结果。
 //! - `MessageId`：前端消息关联。
 //! - `EventId`：事件幂等去重键（journal append 幂等）。
+//! - `TaskId`：可跨 Turn 恢复的逻辑任务，不等同于会话或回合。
+//! - `StepId`：任务的一次决策步骤，不直接作为外部副作用幂等键。
 
 use std::fmt;
 use std::str::FromStr;
@@ -60,3 +62,9 @@ id_newtype!(GenerationId, "gen");
 id_newtype!(ModelCallId, "mcall");
 id_newtype!(MessageId, "msg");
 id_newtype!(EventId, "evt");
+id_newtype!(TaskId, "task");
+id_newtype!(StepId, "step");
+// Unique durable execution claim, not a task ID or a tool idempotency key.
+id_newtype!(BudgetExecutionId, "bexec");
+// Stable host audit operation, never an execution or tool replay capability.
+id_newtype!(BudgetOperationId, "bop");

@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/jingwei-040c049772295eff)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_action-6f5eeb9c999982a3)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_agent-814310b71fb19da9)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_agent_runtime-d3b46f17a327fadb)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_core-10e8d9f3592e57e3)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_journal_jsonl-c833ded0eead036f)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_llm-1a2ffae000cfa22c)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_llm_runtime-bbb56db5e4f30b72)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_openai-a4f07b7b6e21bc8f)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_plugin-ec0eece2da150659)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_runtime-c8edba09ab4c11a8)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_session-c62ecfa18d3f64bf)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_session_runtime-13e5532ec26d7c3e)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_standard-c651b87b3c237fad)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_tool-5aff0148a0a2bd28)
+     Running unittests src/lib.rs (target/debug/deps/jingwei_tool_runtime-e9b1af07306af7ad)
+   Doc-tests jingwei
+   Doc-tests jingwei_action
+   Doc-tests jingwei_agent
+   Doc-tests jingwei_agent_runtime
+   Doc-tests jingwei_core
+   Doc-tests jingwei_journal_jsonl
+   Doc-tests jingwei_llm
+   Doc-tests jingwei_llm_runtime
+   Doc-tests jingwei_openai
+   Doc-tests jingwei_plugin
+   Doc-tests jingwei_runtime
+   Doc-tests jingwei_session
+   Doc-tests jingwei_session_runtime
+   Doc-tests jingwei_standard
+   Doc-tests jingwei_tool
+   Doc-tests jingwei_tool_runtime

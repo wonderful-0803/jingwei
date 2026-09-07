@@ -1,0 +1,11 @@
+{
+  "archive": "results/internal-snapshots/jw02b-20260903-01.zip",
+  "restoreDirectory": "results/internal-snapshots/jw02b-20260903-01-restore",
+  "verifiedFiles": 82,
+  "sha256": "641B148F5840B83B8A3E128A404067D5B3AA69BDAE6B39A4DEC98F14F7C89346",
+  "verification": "Extracted every selected file and compared SHA-256 against its workspace source; all matched.",
+  "scope": "Selected source, docs, private tests/scripts/lockfiles and final validation logs; same-disk copy, not offsite backup or Git history.",
+  "baseline": "results/baseline/20260903-222711-594",
+  "checksPassed": 8,
+  "testsPassed": 70
+}

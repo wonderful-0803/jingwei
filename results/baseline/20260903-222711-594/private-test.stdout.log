@@ -1,0 +1,67 @@
+
+running 52 tests
+test tests::finish_reason_must_match_call_presence ... ok
+test tests::missing_assistant_content_and_unparsed_arguments_fail ... ok
+test tests::empty_messages_and_invalid_candidate_sets_fail ... ok
+test tests::missing_capabilities_are_unknown_not_supported ... ok
+test tests::completion_and_streaming_capabilities_are_independent_per_path ... ok
+test tests::past_tools_need_not_be_visible_to_the_next_inference ... ok
+test tests::role_payloads_reject_cross_role_fields ... ok
+test tests::pending_groups_cannot_be_interrupted_by_instructions_or_user_text ... ok
+test tests::provider_ids_can_repeat_only_in_separate_closed_groups ... ok
+test tests::provider_ids_validate_on_construction_and_deserialization ... ok
+test tests::required_choice_does_not_accept_a_text_only_answer ... ok
+test tests::multiple_calls_accept_reordered_results_without_dropping_any_call ... ok
+test tests::incomplete_responses_never_become_actionable_messages ... ok
+test tests::task_and_step_ids_have_separate_identity_and_serde_roundtrips ... ok
+test tests::existing_adapter_declares_only_implemented_paths_without_probing ... ok
+test tests::schema_root_shape_is_checked_without_network_or_semantic_claims ... ok
+test tests::text_and_json_paths_reject_native_calls_and_json_requires_valid_syntax ... ok
+test tests::unified_text_messages_and_request_roundtrip ... ok
+test tests::named_choice_must_be_visible_at_request_and_response_boundaries ... ok
+test tests::orphan_duplicate_and_missing_results_fail ... ok
+test tests::tool_association_survives_wire_roundtrip ... ok
+test tests::usage_and_finish_metadata_missing_is_unknown_not_zero_or_stop ... ok
+test tests::canonical_gateway_forwards_nondefault_capabilities_without_records ... ok
+test tests::canonical_gateway_rejects_unknown_capabilities_before_inference ... ok
+test unified::accumulator_bounds_bytes_and_call_count_before_mutation ... ok
+test unified::accumulator_reassembles_parallel_calls_and_preserves_truncated_arguments ... ok
+test unified::canonical_request_has_exact_versioned_json_and_nanosecond_timeout ... ok
+test unified::canonical_result_wire_retains_success_metadata_and_failure_partial ... ok
+test unified::compatible_completion_preserves_text_usage_and_request_options ... ok
+test unified::compatible_incomplete_completion_retains_unexecutable_fragments ... ok
+test unified::compatible_json_schema_transport_is_explicit_and_not_strict_claimed ... ok
+test unified::compatible_native_calls_and_history_map_ids_without_loss ... ok
+test unified::compatible_adapter_cancellation_interrupts_headers_and_body_waits ... ok
+test unified::compatible_unknown_finish_reason_is_not_assumed_stop ... ok
+test unified::compatible_stream_rejects_eof_without_done_or_without_finish_reason ... ok
+test unified::controlled_limits_reject_oversized_complete_and_stream_outputs ... ok
+test unified::backpressured_stream_still_times_out_and_drains ... ok
+test unified::controlled_stream_records_before_delivering_finished ... ok
+test unified::controlled_stream_rejects_missing_and_forged_terminals_and_keeps_partial ... ok
+test unified::controlled_text_response_and_effective_options_are_recorded_without_loss ... ok
+test unified::host_cancellation_stops_stream_after_partial_output ... ok
+test unified::malformed_arguments_and_forged_stream_terminals_fail ... ok
+test unified::recording_failure_never_releases_a_successful_terminal ... ok
+test unified::dropping_stream_consumer_cancels_driver_and_retains_tool_fragment ... ok
+test unified::controlled_native_tool_arguments_are_schema_checked ... ok
+test unified::controlled_schema_validation_and_external_ref_rejection_precede_inference ... ok
+test unified::controlled_json_output_is_validated_against_schema_not_only_syntax ... ok
+test unified::compatible_tool_stream_runs_through_canonical_gateway_end_to_end ... ok
+test unified::compatible_stream_handles_split_utf8_multiline_and_usage_only_tail ... ok
+test unified::adapter_preflight_and_precancel_never_connect_to_endpoint ... ok
+test unified::compatible_stream_assembles_multiple_tool_argument_fragments ... ok
+test unified::controlled_timeout_cancels_provider_for_both_modes ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+
+running 4 tests
+test src\lib.rs - (line 10) ... ok
+test src\lib.rs - (line 35) ... ok
+test src\lib.rs - (line 70) ... ok
+test src\lib.rs - (line 97) ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+all doctests ran in 2.20s; merged doctests compilation took 0.99s

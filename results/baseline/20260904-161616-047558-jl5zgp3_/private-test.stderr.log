@@ -1,0 +1,18 @@
+   Compiling jingwei-core v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/core)
+   Compiling jingwei-session v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/session)
+   Compiling jingwei-llm v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/llm)
+   Compiling jingwei-tool v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/tool)
+   Compiling jingwei-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/agent)
+   Compiling jingwei-action v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/action)
+   Compiling jingwei-plugin v0.1.0 (/home/dd/luxiproject/jingwei/crates/plugin/plugin)
+   Compiling jingwei-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/runtime)
+   Compiling jingwei-llm-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/runtime)
+   Compiling jingwei-agent-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/agent)
+   Compiling jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+   Compiling jingwei-openai v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/openai)
+   Compiling jingwei-session-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/runtime)
+   Compiling jingwei-tool-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/runtime)
+   Compiling jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.32s
+     Running unittests src/lib.rs (target/debug/deps/jingwei_private_protocol_tests-bdf183183288eace)
+error: test failed, to rerun pass `--lib`

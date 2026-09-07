@@ -1,0 +1,10 @@
+{
+  "Archive": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\internal-snapshots\\jw02c-20260903-01.zip",
+  "RestoreDirectory": "C:\\Users\\74090\\Documents\\ChatGPT\\DSH学习\\jingwei\\results\\internal-snapshots\\jw02c-20260903-01-restore",
+  "VerifiedFiles": 94,
+  "SHA256": "39DCAFB064BEC1C13079AE2F333EA0C6E27BB48001468FBA7C8C91523835F1C0",
+  "Scope": "Selected source, docs, private tests/scripts/lockfiles and final validation logs. Same-disk copy; no Git history.",
+  "Baseline": "results/baseline/20260903-230901-998",
+  "ChecksPassed": 9,
+  "TestsPassed": 91
+}

@@ -14,8 +14,12 @@ documentation = "https://docs.rs/jingwei-llm-runtime"
 description = "Canonical controlled ModelGateway implementation for Jingwei"
 
 [dependencies]
+jsonschema = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
+jingwei-budget = { workspace = true }
 jingwei-core = { workspace = true }
 jingwei-llm = { workspace = true }
 jingwei-plugin = { workspace = true }

@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use jingwei_budget::{BudgetError, BudgetReport, BudgetScope};
 use jingwei_core::{CancellationSignal, CapabilityId, SessionEvent, SessionEventKind};
 pub use jingwei_core::{ToolCall, ToolFailureCategory, ToolRecordedOutcome, ToolResult};
 use jingwei_session::SessionRuntimeError;
@@ -280,6 +281,7 @@ pub struct ToolTurnBinding {
     caller: ToolCaller,
     cancellation: Arc<dyn CancellationSignal>,
     recorder: Arc<dyn ToolEventRecorder>,
+    budget: Option<BudgetScope>,
 }
 
 impl ToolTurnBinding {
@@ -292,6 +294,7 @@ impl ToolTurnBinding {
             caller,
             cancellation,
             recorder,
+            budget: None,
         }
     }
 
@@ -307,6 +310,17 @@ impl ToolTurnBinding {
         Arc::clone(&self.recorder)
     }
 
+    /// Attach host-owned consumption authority shared with the Agent and model turn.
+    #[must_use]
+    pub fn with_budget(mut self, budget: BudgetScope) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
+    pub fn budget(&self) -> Option<&BudgetScope> {
+        self.budget.as_ref()
+    }
+
     pub fn into_parts(
         self,
     ) -> (
@@ -316,11 +330,24 @@ impl ToolTurnBinding {
     ) {
         (self.caller, self.cancellation, self.recorder)
     }
+
+    pub fn into_budget_parts(
+        self,
+    ) -> (
+        ToolCaller,
+        Arc<dyn CancellationSignal>,
+        Arc<dyn ToolEventRecorder>,
+        Option<BudgetScope>,
+    ) {
+        (self.caller, self.cancellation, self.recorder, self.budget)
+    }
 }
 
 /// Per-call limits. A runtime may only tighten these against configured ceilings.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ToolCallOptions {
+    /// Host-assigned origin, not an authorization or provider-controlled identity.
+    pub action: Option<jingwei_core::ActionContext>,
     pub timeout: Option<Duration>,
     pub max_output_bytes: Option<usize>,
 }
@@ -499,6 +526,17 @@ pub enum ToolRecordStage {
     Result,
 }
 
+/// Evidence retained when an append does not confirm the bound canonical event.
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum ToolRecordError {
+    #[error("Session runtime rejected the canonical Tool event")]
+    Session(#[source] SessionRuntimeError),
+    #[error("canonical Tool recorder panicked")]
+    RecorderPanicked,
+    #[error("canonical Tool recorder returned an event outside its budget binding")]
+    IdentityMismatch { event: Arc<SessionEvent> },
+}
+
 /// Exact evidence retained when an accepted Tool operation cannot be canonically closed.
 #[derive(Clone, Debug, thiserror::Error)]
 #[error("failed to record canonical Tool event at {stage:?} stage")]
@@ -507,11 +545,15 @@ pub struct ToolClosureFailure {
     result: Option<ToolResult>,
     stage: ToolRecordStage,
     #[source]
-    source: SessionRuntimeError,
+    source: ToolRecordError,
 }
 
 impl ToolClosureFailure {
     pub fn call(call: ToolCall, source: SessionRuntimeError) -> Self {
+        Self::call_error(call, ToolRecordError::Session(source))
+    }
+
+    pub fn call_error(call: ToolCall, source: ToolRecordError) -> Self {
         Self {
             call,
             result: None,
@@ -521,6 +563,10 @@ impl ToolClosureFailure {
     }
 
     pub fn result(call: ToolCall, result: ToolResult, source: SessionRuntimeError) -> Self {
+        Self::result_error(call, result, ToolRecordError::Session(source))
+    }
+
+    pub fn result_error(call: ToolCall, result: ToolResult, source: ToolRecordError) -> Self {
         Self {
             call,
             result: Some(result),
@@ -541,14 +587,23 @@ impl ToolClosureFailure {
         self.stage
     }
 
-    pub fn source_error(&self) -> &SessionRuntimeError {
+    pub fn record_error(&self) -> &ToolRecordError {
         &self.source
+    }
+
+    pub fn source_error(&self) -> Option<&SessionRuntimeError> {
+        match &self.source {
+            ToolRecordError::Session(error) => Some(error),
+            ToolRecordError::RecorderPanicked | ToolRecordError::IdentityMismatch { .. } => None,
+        }
     }
 }
 
 /// Infrastructure failure from ToolRuntime. Semantic Tool failures live in `ToolExecution`.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ToolRuntimeError {
+    #[error(transparent)]
+    Budget(#[from] BudgetError),
     #[error("Tool runtime is stopped")]
     Stopped,
     #[error("Tool turn is closed")]
@@ -680,6 +735,10 @@ pub trait ToolGateway: Send + Sync {
 
 /// Host-owned Tool scope for one admitted Agent turn.
 pub trait ToolTurn: Send + Sync {
+    fn budget_report(&self) -> Option<Result<BudgetReport, BudgetError>> {
+        None
+    }
+
     fn gateway(&self) -> &dyn ToolGateway;
 
     fn finish(

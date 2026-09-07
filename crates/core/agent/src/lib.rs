@@ -6,6 +6,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use jingwei_budget::{
+    BudgetAmounts, BudgetCheckpoint, BudgetError, BudgetExecutionError, BudgetExecutionLease,
+    BudgetLimits, BudgetReport, BudgetRequest, BudgetScope, TaskBudget, TaskRunReport,
+};
+
 use jingwei_core::{
     CancellationSignal, CapabilityId, DoneStatus, SessionEvent, SessionEventKind, SessionId,
     StageStatus, TurnId,
@@ -162,6 +167,8 @@ impl AgentFailure {
 pub enum AgentError {
     #[error("agent cancelled")]
     Cancelled,
+    #[error(transparent)]
+    Budget(#[from] BudgetError),
     #[error("agent failed ({code}): {message}", code = .0.code(), message = .0.message())]
     Failed(AgentFailure),
     #[error("model runtime failed: {0}")]
@@ -284,6 +291,33 @@ impl fmt::Display for CapabilityTurnFailure {
 
 impl Error for CapabilityTurnFailure {}
 
+/// Restricted consumption interface: no token evidence, limit grants or ledger replacement.
+pub trait AgentBudget: Send + Sync {
+    fn report(&self) -> Result<BudgetReport, BudgetError>;
+    fn consume_step(&self) -> Result<(), BudgetError>;
+    fn consume_correction(&self) -> Result<(), BudgetError>;
+}
+
+impl AgentBudget for BudgetScope {
+    fn report(&self) -> Result<BudgetReport, BudgetError> {
+        BudgetScope::report(self)
+    }
+    fn consume_step(&self) -> Result<(), BudgetError> {
+        self.reserve(BudgetRequest::new(BudgetAmounts {
+            steps: 1,
+            ..BudgetAmounts::default()
+        }))?
+        .cancel_before_start()
+    }
+    fn consume_correction(&self) -> Result<(), BudgetError> {
+        self.reserve(BudgetRequest::new(BudgetAmounts {
+            corrections: 1,
+            ..BudgetAmounts::default()
+        }))?
+        .cancel_before_start()
+    }
+}
+
 /// Turn-scoped Agent authority.
 pub trait AgentContext: Send + Sync {
     fn emit(&self, kind: AgentEventKind) -> AgentFuture<'_, Result<(), AgentError>>;
@@ -301,6 +335,10 @@ pub trait AgentContext: Send + Sync {
     }
 
     fn cancellation(&self) -> &dyn CancellationSignal;
+
+    fn budget(&self) -> Option<&dyn AgentBudget> {
+        None
+    }
 }
 
 /// Pluggable Agent body.
@@ -317,6 +355,8 @@ pub struct AgentTurnRequest {
     session_id: SessionId,
     agent_key: String,
     user_message: String,
+    budget: Option<(TaskBudget, BudgetLimits)>,
+    durable_budget: Option<BudgetExecutionLease>,
 }
 
 impl AgentTurnRequest {
@@ -329,7 +369,51 @@ impl AgentTurnRequest {
             session_id,
             agent_key: agent_key.into(),
             user_message: user_message.into(),
+            budget: None,
+            durable_budget: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_budget(mut self, task: TaskBudget, run_limits: BudgetLimits) -> Self {
+        self.durable_budget = None;
+        self.budget = Some((task, run_limits));
+        self
+    }
+
+    /// Transfer an already confirmed, unique durable claim to the runtime. Any
+    /// rejection or abandoned execution retains the claim for explicit recovery.
+    #[must_use]
+    pub fn with_durable_budget(
+        mut self,
+        lease: BudgetExecutionLease,
+        run_limits: BudgetLimits,
+    ) -> Self {
+        self.budget = Some((lease.task().clone(), run_limits));
+        self.durable_budget = Some(lease);
+        self
+    }
+
+    pub fn budget(&self) -> Option<&(TaskBudget, BudgetLimits)> {
+        self.budget.as_ref()
+    }
+
+    pub fn into_budget_parts(
+        self,
+    ) -> (
+        SessionId,
+        String,
+        String,
+        Option<(TaskBudget, BudgetLimits)>,
+        Option<BudgetExecutionLease>,
+    ) {
+        (
+            self.session_id,
+            self.agent_key,
+            self.user_message,
+            self.budget,
+            self.durable_budget,
+        )
     }
 
     pub fn into_parts(self) -> (SessionId, String, String) {
@@ -345,6 +429,11 @@ pub trait AgentTurnCanceller: Send + Sync {
 /// Owned completion handle. Dropping it or its waiter detaches without cancelling the turn.
 pub trait AgentTurnController: Send {
     fn canceller(&self) -> Arc<dyn AgentTurnCanceller>;
+
+    /// Observe owned execution/cleanup even while the completion waiter is detached.
+    fn budget_report(&self) -> Option<Result<BudgetReport, BudgetError>> {
+        None
+    }
 
     fn wait(self: Box<Self>) -> AgentFuture<'static, Result<AgentTurnReport, AgentRuntimeError>>;
 }
@@ -366,6 +455,8 @@ pub struct AgentTurnReport {
     final_text: String,
     artifact: Option<serde_json::Value>,
     events: Arc<[SessionEvent]>,
+    task_run_report: Option<TaskRunReport>,
+    budget_checkpoint: Option<BudgetCheckpoint>,
 }
 
 impl AgentTurnReport {
@@ -384,7 +475,31 @@ impl AgentTurnReport {
             final_text,
             artifact,
             events,
+            task_run_report: None,
+            budget_checkpoint: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_task_run_report(mut self, report: TaskRunReport) -> Self {
+        self.task_run_report = Some(report);
+        self
+    }
+
+    pub fn task_run_report(&self) -> Option<&TaskRunReport> {
+        self.task_run_report.as_ref()
+    }
+
+    /// Receipt of the separate final budget commit; None for in-memory turns.
+    /// This is evidence, not authority to execute or proof of current freshness.
+    pub fn budget_checkpoint(&self) -> Option<&BudgetCheckpoint> {
+        self.budget_checkpoint.as_ref()
+    }
+
+    #[must_use]
+    pub fn with_budget_checkpoint(mut self, checkpoint: BudgetCheckpoint) -> Self {
+        self.budget_checkpoint = Some(checkpoint);
+        self
     }
 
     pub fn session_id(&self) -> &SessionId {
@@ -415,6 +530,11 @@ impl AgentTurnReport {
 /// Failure before a Session lease is delivered.
 #[derive(Debug, thiserror::Error)]
 pub enum NotAdmittedFailure {
+    #[error("budget stopped before Session admission: {error}")]
+    Budget {
+        error: BudgetError,
+        report: Box<BudgetReport>,
+    },
     #[error("caller cancelled before Session admission")]
     CallerCancelled,
     #[error("AgentRuntime stopped before Session admission")]
@@ -429,6 +549,30 @@ pub enum DriveFailure {
     StartEnvelope(SessionRuntimeError),
     Agent(AgentError),
     Panicked,
+    BudgetReport { prior: Option<Box<DriveFailure>> },
+}
+
+/// The exact report payload and total persistence outcome, before the terminal.
+#[derive(Debug)]
+pub enum TaskRunReportAttempt {
+    Committed {
+        report: TaskRunReport,
+        event: Arc<SessionEvent>,
+    },
+    Failed {
+        report: TaskRunReport,
+        source: SessionRuntimeError,
+    },
+    /// A mismatched Session lease was rejected before report persistence.
+    Rejected {
+        report: TaskRunReport,
+        error: BudgetError,
+    },
+    /// The recorder returned evidence that does not confirm the attempted report.
+    Invalid {
+        report: TaskRunReport,
+        event: Arc<SessionEvent>,
+    },
 }
 
 /// Total outcome of the one terminal append attempt.
@@ -505,6 +649,7 @@ pub struct TurnFailure {
     artifact: Option<serde_json::Value>,
     report: Option<AgentTurnReport>,
     drive_failure: Option<DriveFailure>,
+    task_run_report_attempt: Option<TaskRunReportAttempt>,
     terminal_attempt: TerminalAttempt,
     settlement_attempt: SettlementAttempt,
 }
@@ -518,9 +663,16 @@ pub struct TurnFailureContext {
     artifact: Option<serde_json::Value>,
     report: Option<AgentTurnReport>,
     drive_failure: Option<DriveFailure>,
+    task_run_report_attempt: Option<TaskRunReportAttempt>,
 }
 
 impl TurnFailureContext {
+    #[must_use]
+    pub fn with_task_run_report_attempt(mut self, attempt: TaskRunReportAttempt) -> Self {
+        self.task_run_report_attempt = Some(attempt);
+        self
+    }
+
     pub fn new(
         session_id: SessionId,
         turn_id: TurnId,
@@ -538,6 +690,7 @@ impl TurnFailureContext {
             artifact,
             report,
             drive_failure,
+            task_run_report_attempt: None,
         }
     }
 }
@@ -654,6 +807,7 @@ impl TurnFailure {
             artifact: context.artifact,
             report: context.report,
             drive_failure: context.drive_failure,
+            task_run_report_attempt: context.task_run_report_attempt,
             terminal_attempt,
             settlement_attempt,
         })
@@ -681,6 +835,10 @@ impl TurnFailure {
 
     pub fn report(&self) -> Option<&AgentTurnReport> {
         self.report.as_ref()
+    }
+
+    pub fn task_run_report_attempt(&self) -> Option<&TaskRunReportAttempt> {
+        self.task_run_report_attempt.as_ref()
     }
 
     pub fn drive_failure(&self) -> Option<&DriveFailure> {
@@ -774,6 +932,19 @@ impl Error for TurnFailure {}
 /// Synchronous admission or owned-turn completion failure.
 #[derive(Debug, thiserror::Error)]
 pub enum AgentRuntimeError {
+    #[error("durable recovery boundary rejected: {source}")]
+    RecoveryBoundary {
+        source: BudgetExecutionError,
+        settlement: Result<(), SessionRuntimeError>,
+    },
+    /// Session outcome is retained even when the separate checkpoint barrier fails.
+    #[error("durable budget finalization failed: {source}")]
+    Durability {
+        source: BudgetExecutionError,
+        outcome: Box<Result<AgentTurnReport, AgentRuntimeError>>,
+    },
+    #[error(transparent)]
+    Budget(#[from] BudgetError),
     #[error("AgentRuntime is stopped")]
     Stopped,
     #[error("AgentRuntime admission capacity is exhausted")]

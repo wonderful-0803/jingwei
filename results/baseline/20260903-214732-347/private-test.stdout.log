@@ -1,0 +1,39 @@
+
+running 25 tests
+test tests::completion_and_streaming_capabilities_are_independent_per_path ... ok
+test tests::empty_messages_and_invalid_candidate_sets_fail ... ok
+test tests::finish_reason_must_match_call_presence ... ok
+test tests::pending_groups_cannot_be_interrupted_by_instructions_or_user_text ... ok
+test tests::named_choice_must_be_visible_at_request_and_response_boundaries ... ok
+test tests::orphan_duplicate_and_missing_results_fail ... ok
+test tests::missing_assistant_content_and_unparsed_arguments_fail ... ok
+test tests::past_tools_need_not_be_visible_to_the_next_inference ... ok
+test tests::multiple_calls_accept_reordered_results_without_dropping_any_call ... ok
+test tests::missing_capabilities_are_unknown_not_supported ... ok
+test tests::provider_ids_can_repeat_only_in_separate_closed_groups ... ok
+test tests::plain_text_legacy_roundtrip_preserves_wire ... ok
+test tests::existing_adapter_declares_only_implemented_paths_without_probing ... ok
+test tests::legacy_tool_text_and_lossy_downcasts_are_rejected ... ok
+test tests::canonical_gateway_forwards_nondefault_capabilities_without_records ... ok
+test tests::provider_ids_validate_on_construction_and_deserialization ... ok
+test tests::role_payloads_reject_cross_role_fields ... ok
+test tests::canonical_gateway_preserves_legacy_calls_and_forwards_capabilities ... ok
+test tests::schema_root_shape_is_checked_without_network_or_semantic_claims ... ok
+test tests::task_and_step_ids_have_separate_identity_and_serde_roundtrips ... ok
+test tests::text_and_json_paths_reject_native_calls_and_json_requires_valid_syntax ... ok
+test tests::incomplete_responses_never_become_actionable_messages ... ok
+test tests::unknown_preflight_makes_zero_inferences_and_legacy_api_still_works ... ok
+test tests::required_choice_does_not_accept_a_text_only_answer ... ok
+test tests::usage_and_finish_metadata_missing_is_unknown_not_zero_or_stop ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+test src\lib.rs - (line 29) ... ok
+test src\lib.rs - (line 55) ... ok
+test src\lib.rs - (line 96) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+all doctests ran in 1.83s; merged doctests compilation took 0.71s

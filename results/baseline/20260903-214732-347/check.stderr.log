@@ -1,0 +1,5 @@
+    Checking jingwei-journal-jsonl v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\session\jsonl)
+    Checking jingwei-tool-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\tools\runtime)
+    Checking jingwei-agent-runtime v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\agent)
+    Checking jingwei-standard v0.1.0 (C:\Users\74090\Documents\ChatGPT\DSH学习\jingwei\crates\runtime\standard)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.88s

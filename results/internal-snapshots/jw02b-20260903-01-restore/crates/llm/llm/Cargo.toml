@@ -1,0 +1,21 @@
+[package]
+name = "jingwei-llm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-llm"
+description = "Llm 能力族接口：消息/补全词汇、错误分类、流式与取消契约"
+
+[dependencies]
+jingwei-core = { workspace = true }
+jingwei-session = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
