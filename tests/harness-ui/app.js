@@ -90,14 +90,21 @@ function render() {
     if(runData.status==='error')html+=`<div class="verdict">运行器错误${code(runData.error || runData.log)}</div>`;
     if(busy)html+='<p class="inspect-note busy">● 正在等待下一条规范事件…</p>';
     $('feed').innerHTML=html;
-    for(const b of $('feed').querySelectorAll('[data-call]'))b.onclick=()=>{selectedCall=Number(b.dataset.call);selectedEvent=null;activeTab='request';renderInspector();};
-    for(const b of $('feed').querySelectorAll('[data-event]'))b.onclick=()=>{selectedEvent=b.dataset.event;activeTab='trace';renderInspector();};
+    for(const b of $('feed').querySelectorAll('[data-call]'))b.onclick=()=>{selectedCall=Number(b.dataset.call);selectedEvent=null;activeTab='request';openLogs();};
+    for(const b of $('feed').querySelectorAll('[data-event]'))b.onclick=()=>{selectedEvent=b.dataset.event;activeTab='trace';openLogs();};
     if(nearBottom)$('feed').scrollTop=$('feed').scrollHeight;
   }
   renderInspector();
 }
 let inspectSignature='';
+function openLogs(){
+  renderInspector();
+  if(!$('logsDialog').open)$('logsDialog').showModal();
+}
+$('openLogs').onclick=openLogs;
+$('closeLogs').onclick=()=>$('logsDialog').close();
 function renderInspector(){
+  $('logsContext').textContent=runData ? `${runData.id} · ${runData.config.model}` : '选择一条运行记录，检查各层证据。';
   document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===activeTab));
   const signature=JSON.stringify([current,activeTab,selectedCall,selectedEvent,runData?.events?.length,runData?.transport,runData?.status]);
   if(signature===inspectSignature)return;inspectSignature=signature;
