@@ -52,6 +52,7 @@ export default defineConfig({
         items: [
           { text: '任务预算账本', link: '/task-budget' },
           { text: '任务状态契约', link: '/task-state' },
+          { text: '受控任务续跑', link: '/task-recovery' },
           { text: '预算快照与恢复原语', link: '/budget-checkpoints' },
           { text: '文件检查点存储', link: '/file-checkpoint-store' },
           { text: '持久预算运行', link: '/durable-budget' },

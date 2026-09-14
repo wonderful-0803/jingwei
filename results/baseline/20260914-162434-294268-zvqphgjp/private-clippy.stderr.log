@@ -1,0 +1,40 @@
+    Checking jingwei-core v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/core)
+    Checking jingwei-session v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/session)
+    Checking jingwei-budget v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/budget)
+    Checking jingwei-context v0.1.0 (/home/dd/luxiproject/jingwei/crates/context/context)
+    Checking jingwei-tool v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/tool)
+    Checking jingwei-llm v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/llm)
+    Checking jingwei-task v0.1.0 (/home/dd/luxiproject/jingwei/crates/task/state)
+    Checking jingwei-budget-file v0.1.0 (/home/dd/luxiproject/jingwei/crates/budget/file)
+    Checking jingwei-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/agent)
+    Checking jingwei-action v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/action)
+    Checking jingwei-task-file v0.1.0 (/home/dd/luxiproject/jingwei/crates/task/file)
+    Checking jingwei-plugin v0.1.0 (/home/dd/luxiproject/jingwei/crates/plugin/plugin)
+    Checking jingwei-task-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/task/runtime)
+    Checking jingwei-reference-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/reference)
+    Checking jingwei-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/runtime)
+    Checking jingwei-journal-jsonl v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/jsonl)
+    Checking jingwei-llm-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/runtime)
+    Checking jingwei-tool-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/runtime)
+    Checking jingwei-session-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/runtime)
+    Checking jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+    Checking jingwei-openai v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/openai)
+    Checking jingwei-agent-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/agent)
+    Checking jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+error: this `MutexGuard` is held across an await point
+   --> src/task_runtime.rs:307:9
+    |
+307 |     let requests = second.model.requests.lock().unwrap();
+    |         ^^^^^^^^
+    |
+    = help: consider using an async-aware `Mutex` type or ensuring the `MutexGuard` is dropped before calling `await`
+note: these are all the await points this lock is held through
+   --> src/task_runtime.rs:314:21
+    |
+314 |     second.finish().await;
+    |                     ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#await_holding_lock
+    = note: `-D clippy::await-holding-lock` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::await_holding_lock)]`
+
+error: could not compile `jingwei-private-protocol-tests` (lib test) due to 1 previous error

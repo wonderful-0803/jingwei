@@ -306,6 +306,8 @@ impl From<TaskRunReportVersion> for u16 {
 pub enum TaskRunStop {
     Completed,
     WaitingForInput,
+    /// A completed step boundary awaiting explicit host continuation.
+    Checkpointed,
     CallerCancelled,
     RuntimeStopping,
     Budget(BudgetStopReason),

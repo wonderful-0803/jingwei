@@ -73,6 +73,13 @@ pub(super) fn assert_closed(events: &[SessionEvent]) {
                                 ..
                             }
                         )),
+                        TaskRunStop::Checkpointed => assert!(matches!(
+                            last,
+                            SessionEventKind::Done {
+                                status: DoneStatus::Checkpointed,
+                                ..
+                            }
+                        )),
                         TaskRunStop::WaitingForInput => assert!(matches!(
                             last,
                             SessionEventKind::Done {

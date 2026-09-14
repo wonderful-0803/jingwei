@@ -882,6 +882,7 @@ dependencies = [
  "jingwei-openai",
  "jingwei-session-runtime",
  "jingwei-task-file",
+ "jingwei-task-runtime",
  "jingwei-tool-runtime",
  "serde_json",
  "tokio",
@@ -959,6 +960,20 @@ dependencies = [
  "jingwei-task",
  "serde",
  "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "jingwei-task-runtime"
+version = "0.1.0"
+dependencies = [
+ "jingwei-agent",
+ "jingwei-budget",
+ "jingwei-core",
+ "jingwei-session",
+ "jingwei-task",
+ "serde_json",
+ "thiserror",
  "tokio",
 ]
 

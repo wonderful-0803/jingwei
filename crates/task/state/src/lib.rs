@@ -55,6 +55,7 @@ pub enum TaskPhase {
     Created,
     /// A completed canonical turn, not independent proof of business success.
     Completed,
+    Checkpointed,
     WaitingForInput {
         question: String,
     },
@@ -235,7 +236,9 @@ impl TaskSnapshot {
         if matches!(
             self.phase,
             TaskPhase::Stopped {
-                reason: TaskRunStop::Completed | TaskRunStop::WaitingForInput
+                reason: TaskRunStop::Completed
+                    | TaskRunStop::WaitingForInput
+                    | TaskRunStop::Checkpointed
             }
         ) {
             return Err(TaskStateError::Invalid("inconsistent stopped phase"));
@@ -388,6 +391,10 @@ fn phase(history: &[SessionEvent]) -> Result<TaskPhase, TaskStateError> {
             status: DoneStatus::Completed,
             ..
         } => Ok(TaskPhase::Completed),
+        SessionEventKind::Done {
+            status: DoneStatus::Checkpointed,
+            ..
+        } => Ok(TaskPhase::Checkpointed),
         SessionEventKind::Done {
             status: DoneStatus::WaitingForInput,
             ..

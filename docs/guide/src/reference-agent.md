@@ -173,3 +173,7 @@ system 放置当前仍有效的宿主约束，pinned_turns 可固定必须保留
 正常结束时，通过 AgentTurnReport.events 和 task_run_report 查询模型/工具配对、累计消耗、能力收尾和终态；SessionPersistence 保留规范事件。取消和关闭服务也要等待已接受工作的结果及结算，不能仅凭最后一个 run_v1 判断完成。
 
 如果工具已执行但结果写入和物理核对都失败，规范日志可能缺失结果甚至终态。此时检查 AgentRuntimeError::Turn 中 TurnFailure 的 drive_failure、task_run_report_attempt、terminal_attempt 和 settlement_attempt，保留原始工具调用/结果尝试及未确认计数；不要把“未写入日志”理解为“未执行”，也不要自动重放工具。宿主应保存这些错误证据，后续恢复仍须遵循原有持久化执行与核对规则。
+
+## 持久步骤暂停与跨进程续跑
+
+启用 checkpoint_each_step（默认 false）后，成功工具步骤返回 Checkpointed，由 canonical runtime 完整收尾，随后通过独立 jingwei-task-runtime 保存任务状态。新回合通过 TaskIntent::Continue 或关联提问回合的 Reply 显式开启，复用累计预算并重新验证当前权限。普通进程内 ReferenceWaiting 不接收 durable 报告，持久路径始终使用执行 lease。完整装配与失败处理见[受控任务续跑](task-recovery.md)。

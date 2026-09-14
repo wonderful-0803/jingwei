@@ -1,6 +1,6 @@
 # 持久化完整 assistant 回复
 
-canonical AgentRuntime 会把成功完成或等待用户输入的 `AgentTurnOutput.final_text` 写为一个 `AssistantMessage` 事件。Agent 不必先 emit delta；完整文本会随 Session 历史进入下一回合，在 JSONL provider 下也可跨进程读取。
+canonical AgentRuntime 会把成功完成、步骤暂停或等待用户输入的 `AgentTurnOutput.final_text` 写为一个 `AssistantMessage` 事件。Agent 不必先 emit delta；完整文本会随 Session 历史进入下一回合，在 JSONL provider 下也可跨进程读取。
 
 ## Agent 返回正文即可
 
@@ -39,7 +39,7 @@ impl Agent for Answer {
 
 顺序为：Agent 正文结束 → 模型/工具排空 → 进入清理 → 完整消息 → TaskRunReport → 唯一 Done/Error → Session settle → 可选最终预算检查点。
 
-只有完成或等待输入的意图进入完整消息提交。此前发生的取消、Agent 失败或预算停止不生成完整回复；已有 delta 仍是诊断证据。进入收尾提交后，取消等待或 shutdown 不会丢弃已接收的持久化工作，也不会撤回已写入的消息。
+只有完成、步骤暂停或等待输入的意图进入完整消息提交。此前发生的取消、Agent 失败或预算停止不生成完整回复；已有 delta 仍是诊断证据。进入收尾提交后，取消等待或 shutdown 不会丢弃已接收的持久化工作，也不会撤回已写入的消息。
 
 完整消息本身不是整个回合成功的证明。报告、终态、结算或最终预算提交仍可能失败；消费者还应核对同回合的终态和关闭证据。遇到 Error 或未关闭回合，不能仅凭完整消息宣称业务成功。
 

@@ -21,6 +21,7 @@ cargo doc --workspace --all-features --no-deps --locked
 | 文本、原生工具、JSON Schema 生成 | `jingwei::llm` | [模型协议](model-protocol.md) |
 | 单步 CallTool / Final / AskUser | `jingwei::action`，需启用 `actions` feature | [单步动作](action-step.md) |
 | 共享账本、检查点与宿主增额 | `jingwei::budget` | [持久预算](durable-budget.md)、[审计增额](budget-grants.md)、[候选恢复](budget-recovery.md) |
+| 受控任务续跑 | `jingwei_task_runtime::TaskCoordinator`，独立 crate | [任务续跑](task-recovery.md) |
 | 本地持久任务状态 | `jingwei_task_file::FileTaskStateStore`，显式依赖独立 crate | [任务状态](task-state.md#本地持久化任务状态) |
 | 版本化任务状态与 CAS 存储 | `jingwei::task`，需启用 `task-state` feature | [任务状态](task-state.md) |
 | 工具、会话与规范事件 | `jingwei::tool`、`jingwei::session`、`jingwei::event` | [模型调度](model-scheduling.md)、[运行报告](task-budget.md) |

@@ -32,7 +32,7 @@ assert_eq!(projection.algorithm_version, 1);
 
 ## 消息与调用规则
 
-- 用户事件产生 user 消息；成功完成或等待输入的 Turn 使用规范 AssistantMessage，保留空回复。AssistantDelta 只记入省略报告，不重复拼接到完整回复。
+- 用户事件产生 user 消息；成功完成、步骤暂停或等待输入的 Turn 使用规范 AssistantMessage，保留空回复。AssistantDelta 只记入省略报告，不重复拼接到完整回复。
 - 实际 ToolCall 与 ToolResult 在同一 Turn 内配对，形成不可拆分的 ToolExchange 组。组按调用事件顺序排列，即使并行结果逆序完成也不改变顺序。
 - 模型提议及 ModelRequest/ModelResult 作为审计记录保留来源，不直接当作执行过的工具。投影使用基于调用事件 seq 的合成 ID 关联 assistant 调用与 tool 结果，避免不同 Turn 重用原始 ID 时冲突。
 - tool 消息保留完整 ToolRecordedOutcome，包括成功或失败状态、错误信息等。工具内容不会变成 system 消息，合成 ID 和历史消息也不提供执行授权。

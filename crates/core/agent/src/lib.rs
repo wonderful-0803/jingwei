@@ -32,6 +32,8 @@ pub type AgentFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub enum TurnOutcome {
     Completed,
     WaitingForInput,
+    /// A completed step boundary awaiting explicit host continuation.
+    Checkpointed,
     Cancelled,
 }
 
@@ -41,6 +43,8 @@ pub enum TurnOutcome {
 pub enum TurnDisposition {
     Completed,
     WaitingForInput,
+    /// A completed step boundary awaiting explicit host continuation.
+    Checkpointed,
     Cancelled,
     Failed,
 }
@@ -50,6 +54,7 @@ impl From<TurnOutcome> for TurnDisposition {
         match value {
             TurnOutcome::Completed => Self::Completed,
             TurnOutcome::WaitingForInput => Self::WaitingForInput,
+            TurnOutcome::Checkpointed => Self::Checkpointed,
             TurnOutcome::Cancelled => Self::Cancelled,
         }
     }
@@ -900,6 +905,13 @@ fn terminal_matches_resolution(
                 artifact: terminal_artifact,
             },
             TurnDisposition::WaitingForInput,
+        )
+        | (
+            SessionEventKind::Done {
+                status: DoneStatus::Checkpointed,
+                artifact: terminal_artifact,
+            },
+            TurnDisposition::Checkpointed,
         )
         | (
             SessionEventKind::Done {

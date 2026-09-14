@@ -1,0 +1,4 @@
+   Compiling jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.02s
+     Running unittests src/lib.rs (target/debug/deps/jingwei_private_protocol_tests-cc216fc362fca2cc)
+error: test failed, to rerun pass `--lib`

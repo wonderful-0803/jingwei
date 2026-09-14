@@ -811,7 +811,9 @@ async fn drive_turn(
     if request.cancellation.token.is_cancelled()
         && matches!(
             resolved.disposition,
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
         )
     {
         resolved = ResolvedIntent::cancelled(lock_unpoisoned(&partial_text).clone());
@@ -824,9 +826,9 @@ async fn drive_turn(
     let mut model_failure: Option<ModelTurnFailure> = None;
     if let Some(bound) = model_turn {
         let mode = match resolved.disposition {
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput => {
-                ModelFinishMode::Graceful
-            }
+            TurnDisposition::Completed
+            | TurnDisposition::WaitingForInput
+            | TurnDisposition::Checkpointed => ModelFinishMode::Graceful,
             TurnDisposition::Cancelled | TurnDisposition::Failed => ModelFinishMode::Cancel,
         };
         model_failure = bound.finish(mode).await.err();
@@ -835,7 +837,9 @@ async fn drive_turn(
     if request.cancellation.token.is_cancelled()
         && matches!(
             resolved.disposition,
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
         )
     {
         resolved = ResolvedIntent::cancelled(lock_unpoisoned(&partial_text).clone());
@@ -844,9 +848,12 @@ async fn drive_turn(
     let mut tool_failure: Option<ToolTurnFailure> = None;
     if let Some(bound) = tool_turn {
         let mode = match (resolved.disposition, model_failure.is_none()) {
-            (TurnDisposition::Completed | TurnDisposition::WaitingForInput, true) => {
-                ToolFinishMode::Graceful
-            }
+            (
+                TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed,
+                true,
+            ) => ToolFinishMode::Graceful,
             _ => ToolFinishMode::Cancel,
         };
         tool_failure = bound.finish(mode).await.err();
@@ -855,7 +862,9 @@ async fn drive_turn(
     if request.cancellation.token.is_cancelled()
         && matches!(
             resolved.disposition,
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
         )
     {
         resolved = ResolvedIntent::cancelled(lock_unpoisoned(&partial_text).clone());
@@ -872,6 +881,7 @@ async fn drive_turn(
             resolved.disposition,
             TurnDisposition::Completed
                 | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
                 | TurnDisposition::Cancelled
         )
     {
@@ -883,7 +893,9 @@ async fn drive_turn(
     if admission_matches
         && matches!(
             resolved.disposition,
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
         )
     {
         let draft = SessionEventDraft::new(SessionEventKind::AssistantMessage {
@@ -943,6 +955,7 @@ async fn drive_turn(
         match resolved.disposition {
             TurnDisposition::Completed => TaskRunStop::Completed,
             TurnDisposition::WaitingForInput => TaskRunStop::WaitingForInput,
+            TurnDisposition::Checkpointed => TaskRunStop::Checkpointed,
             TurnDisposition::Cancelled => match request.cancellation.reason() {
                 CancelReason::RuntimeStopping => TaskRunStop::RuntimeStopping,
                 _ => TaskRunStop::CallerCancelled,
@@ -1387,6 +1400,10 @@ impl ResolvedIntent {
         match self.disposition {
             TurnDisposition::Completed => SessionEventKind::Done {
                 status: DoneStatus::Completed,
+                artifact: self.artifact.clone(),
+            },
+            TurnDisposition::Checkpointed => SessionEventKind::Done {
+                status: DoneStatus::Checkpointed,
                 artifact: self.artifact.clone(),
             },
             TurnDisposition::WaitingForInput => SessionEventKind::Done {

@@ -57,6 +57,8 @@ impl ReferenceClock for SystemReferenceClock {
 #[derive(Clone, Debug)]
 pub struct ReferenceAgentConfig {
     pub max_steps: u32,
+    /// Close the turn after each confirmed successful tool step for host checkpointing.
+    pub checkpoint_each_step: bool,
     /// Per-turn ceiling, also charged to the shared Task correction budget.
     pub max_corrections: u32,
     pub protocol: ContextActionProtocol,
@@ -77,6 +79,7 @@ impl ReferenceAgentConfig {
     pub fn new(target: ContextTarget, context_budget: ContextBudget) -> Self {
         Self {
             max_steps: 8,
+            checkpoint_each_step: false,
             max_corrections: 2,
             protocol: ContextActionProtocol::Native,
             system: vec![],
@@ -104,6 +107,7 @@ pub struct ReferenceAgentPolicies {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ReferenceStop {
     ModelClaimedComplete,
+    Checkpointed,
     BusinessVerified,
     CompletionRejected,
     NoProgress,
@@ -531,6 +535,15 @@ impl ReferenceAgent {
                             "reference_no_progress",
                             "repeated action and feedback without state change",
                         ));
+                    }
+                    if self.config.checkpoint_each_step {
+                        run.stop = ReferenceStop::Checkpointed;
+                        return Ok(AgentTurnOutput {
+                            final_text: "Step confirmed; awaiting host continuation.".into(),
+                            outcome: TurnOutcome::Checkpointed,
+                            artifact: Some(json!({"type":"reference_checkpoint_v1","task_id":task,
+                                "decision":report.step.context,"tool_result":execution.result_event().event_id})),
+                        });
                     }
                     current = report.next_current;
                 }

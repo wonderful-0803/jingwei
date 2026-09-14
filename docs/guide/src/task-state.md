@@ -2,7 +2,7 @@
 
 启用 facade 的 `task-state` feature 后，通过 `jingwei::task` 使用 TaskSnapshot、日志评估和 TaskStateStore；也可单独依赖 jingwei-task。它不依赖参考 Agent，不自动安装到 Harness 或 StandardCoreBundle。
 
-当前提供状态契约、有界内存存储和可选本地文件存储。步骤中间检查点和跨重启续跑仍在后续阶段；现有[持久预算](durable-budget.md)的独占执行 lease 不能被任务快照替代。
+当前提供状态契约、有界内存存储和可选本地文件存储。JW-07-c 已接入[步骤暂停与受控续跑](task-recovery.md)；现有[持久预算](durable-budget.md)的独占执行 lease 不能被任务快照替代。
 
 ## 快照记录什么
 
@@ -12,7 +12,7 @@
 | compatibility | 独立的 Agent/策略修订、工具契约修订、payload 命名空间及 schema 版本 |
 | cursor | 与预算检查点一致的已确认日志尾地址 |
 | budget | 预算检查点版本和累计 charged 的引用；不是另一份可运行账本 |
-| phase | Created、Completed、WaitingForInput 或 Stopped，来自已确认回合状态 |
+| phase | Created、Checkpointed、Completed、WaitingForInput 或 Stopped，来自已确认回合状态 |
 | settled_steps | 已有结果的决策 ID，含被拒模型提案；不代表每一步业务成功 |
 | payloads | 应用拥有的 JSON 数据，键必须与声明的命名空间完全一致 |
 
@@ -119,4 +119,4 @@ Applied 只在完整追加并同步文件后返回；对最新候选的完全相
 
 本地文件系统必须支持排他锁与 sync_all；文件供应和硬件持久性由部署负责。本批在 Linux GNU 上验证跨进程竞争、零字节/部分写入、同步前后错误、完整写入后进程退出并由新进程确认；这些测试不等同于掉电模拟或跨平台验收。
 
-任务文件锁只保护任务状态文件，不覆盖规范日志、预算文件或 Agent 执行。完整恢复协调仍在 JW-07-c：任务状态写入成功不授予执行权限，也不沿用旧审批。
+任务文件锁只保护任务状态文件，不覆盖规范日志、预算文件或 Agent 执行。JW-07-c 已提供[受控协调](task-recovery.md)：任务状态写入成功不授予执行权限，也不沿用旧审批。

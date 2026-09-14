@@ -51,6 +51,8 @@ impl Default for ProjectionConfig {
 pub enum ProjectedTurnState {
     Completed,
     WaitingForInput,
+    /// A completed step boundary awaiting explicit host continuation.
+    Checkpointed,
     Failed,
     Cancelled,
     Open,
@@ -317,6 +319,7 @@ fn project_turn(
                 state = match status {
                     DoneStatus::Completed => ProjectedTurnState::Completed,
                     DoneStatus::WaitingForInput => ProjectedTurnState::WaitingForInput,
+                    DoneStatus::Checkpointed => ProjectedTurnState::Checkpointed,
                     DoneStatus::Cancelled => ProjectedTurnState::Cancelled,
                 };
                 terminal = Some(event.event_id.clone());
@@ -359,7 +362,9 @@ fn project_turn(
     }
     let successful = matches!(
         state,
-        ProjectedTurnState::Completed | ProjectedTurnState::WaitingForInput
+        ProjectedTurnState::Completed
+            | ProjectedTurnState::WaitingForInput
+            | ProjectedTurnState::Checkpointed
     );
     let missing = successful && complete.is_none();
     if missing && out.config.legacy_replies == LegacyReplyPolicy::Reject {

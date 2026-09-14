@@ -979,6 +979,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "jingwei-task-runtime"
+version = "0.1.0"
+dependencies = [
+ "jingwei-agent",
+ "jingwei-budget",
+ "jingwei-core",
+ "jingwei-session",
+ "jingwei-task",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "jingwei-tool"
 version = "0.1.0"
 dependencies = [

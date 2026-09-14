@@ -30,6 +30,8 @@ pub enum DoneStatus {
     Completed,
     /// 等待用户补充输入后继续（对齐 writing-rust 的 grill-me 挂起语义）。
     WaitingForInput,
+    /// A completed step boundary awaiting explicit host continuation.
+    Checkpointed,
     Cancelled,
 }
 

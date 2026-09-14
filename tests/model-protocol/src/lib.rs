@@ -3,6 +3,7 @@
 #![doc = include_str!("../../../docs/guide/src/action-step.md")]
 #![doc = include_str!("../../../docs/guide/src/task-budget.md")]
 #![doc = include_str!("../../../docs/guide/src/task-state.md")]
+#![doc = include_str!("../../../docs/guide/src/task-recovery.md")]
 #![doc = include_str!("../../../docs/guide/src/model-scheduling.md")]
 #![doc = include_str!("../../../docs/guide/src/budget-checkpoints.md")]
 #![doc = include_str!("../../../docs/guide/src/file-checkpoint-store.md")]
