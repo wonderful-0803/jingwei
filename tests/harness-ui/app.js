@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pretty = value => JSON.stringify(value, null, 2);
 const code = value => `<pre>${escape(typeof value === 'string' ? value : pretty(value))}</pre>`;
+let modelState=null, catalogSignature='', runActive=false;
 let bootstrap, current = null, runData = null, activeTab = 'request', selectedCall = 0, selectedEvent = null, caseId, pollBusy = false, historySignature = '', feedSignature = '';
 const names = {'doc-copy':'文档复制','doc-extract':'文档字段提取','order-ready':'订单 · 有库存','order-hold':'订单 · 无库存'};
 async function api(path, data) {
@@ -33,14 +34,16 @@ function reset() {
 }
 async function refreshHistory() {
   const runs=await api('/api/runs');
-  $('run').disabled=runs.some(r=>r.status==='running');
+  runActive=runs.some(r=>r.status==='running');
+  updateModelButtons();
   const signature=JSON.stringify(runs.map(r=>[r.id,r.status,r.result?.passed]))+current;
   if(signature===historySignature)return;
   historySignature=signature;$('historyCount').textContent=runs.length;$('history').replaceChildren();
   for(const r of runs) {
     const b=document.createElement('button');b.className='history-item'+(r.id===current?' current':'');
     const status=r.status==='running'?'运行中':r.status==='interrupted'?'已中断':r.result?.passed?'通过':'未通过';
-    b.innerHTML=`${escape(r.title)}<small>${escape(new Date(r.started_at*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}))} · ${status} · ${escape(r.config.protocol.toUpperCase())}</small>`;
+    b.innerHTML=`${escape(r.title)}<small>${escape(new Date(r.started_at*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}))} · ${status} · ${escape(r.config.protocol.toUpperCase())}</small><small>${escape(r.config.model)}</small>`;
+    b.title=r.title+' · '+r.config.model;
     b.onclick=async()=>{
       current=r.id;selectedCall=0;selectedEvent=null;feedSignature='';
       try {runData=await api('/api/runs/'+current);loadCase(runData.case);
@@ -134,7 +137,7 @@ async function start(){
 }
 async function poll(){
   if(pollBusy)return;pollBusy=true;
-  try {await refreshHistory();if(current){const id=current;const data=await api('/api/runs/'+id);if(current===id){runData=data;render();}}}
+  try {await refreshHistory();await refreshModels();if(current){const id=current;const data=await api('/api/runs/'+id);if(current===id){runData=data;render();}}}
   catch(e){showError(e);}finally{pollBusy=false;}
 }
 let stateDraft;
@@ -147,3 +150,33 @@ $('export').onclick=()=>{const blob=new Blob([pretty(runData)],{type:'applicatio
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{activeTab=b.dataset.tab;renderInspector();});
 async function health(){try{const h=await api('/api/health');$('health').textContent=h.ready?'● 本地模型在线':'○ 模型未连接 · 可用模拟脚本';$('health').className='health'+(h.ready?'':' off');$('health').title=h.detail;}catch{$('health').textContent='○ 工作台连接中断';}}
 (async()=>{try{bootstrap=await api('/api/bootstrap');$('model').value=bootstrap.model;loadCase(bootstrap.cases[0]);welcome();await poll();await health();setInterval(poll,900);setInterval(health,10000);}catch(e){showError(e);}})();
+
+function updateModelButtons(){
+  const loading=modelState?.status==='loading';
+  $('run').disabled=runActive || ($('backend').value==='openai' && modelState?.managed && (modelState.status!=='ready' || $('modelFile').value!==modelState.current));
+  $('switchModel').disabled=runActive || loading || !$('modelFile').value;
+  $('modelFile').disabled=runActive || loading;
+}
+async function refreshModels(force=false){
+  const state=await api('/api/models');modelState=state;
+  $('managedModels').classList.toggle('hidden',!state.managed);
+  $('externalModel').classList.toggle('hidden',state.managed);
+  if(!state.managed){updateModelButtons();return;}
+  const signature=JSON.stringify(state.models);
+  if(signature!==catalogSignature || force){
+    const previous=$('modelFile').value;catalogSignature=signature;
+    $('modelFile').replaceChildren();
+    for(const m of state.models){const option=document.createElement('option');option.value=m.id;option.textContent=`${m.id} · ${(m.bytes/1024**3).toFixed(2)} GiB`;$('modelFile').append(option);}
+    const choose=[previous,state.current,state.target].find(id=>state.models.some(m=>m.id===id));if(choose)$('modelFile').value=choose;
+  }
+  if(state.current)$('model').value=state.current;
+  const labels={idle:'选择一个 GGUF，然后点击加载。',loading:`正在加载 ${state.target}，请稍候…`,ready:`CUDA 已就绪 · ${state.current}`,error:`加载失败：${state.error}`};
+  $('modelState').textContent=state.models.length?(labels[state.status] || state.status):'目录中尚无 GGUF 文件，下载完成后刷新。';
+  $('modelState').title=state.directory+(state.log?' · 日志：'+state.log:'');
+  $('modelState').classList.toggle('error',state.status==='error');
+  updateModelButtons();
+}
+$('refreshModels').onclick=()=>refreshModels(true).catch(showError);
+$('switchModel').onclick=async()=>{try{await api('/api/models/switch',{model:$('modelFile').value});await refreshModels();}catch(e){showError(e);}};
+$('backend').addEventListener('change',updateModelButtons);
+$('modelFile').addEventListener('change',updateModelButtons);

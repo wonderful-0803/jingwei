@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from models import ModelManager
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -21,6 +22,8 @@ RUNS = {}
 TOKEN = secrets.token_urlsafe(32)
 ARGS = None
 SERVER = None
+MODELS = None
+BRIDGES = 0
 
 
 def read_json(path, default=None):
@@ -139,6 +142,13 @@ def create_run(data):
     if not 1 <= steps <= 64 or not 1 <= tokens <= 4096:
         raise ValueError('步数范围 1–64；输出 Token 范围 1–4096。')
     model = data.get('model', ARGS.model_alias)
+    if backend == 'openai' and MODELS:
+        model_state = MODELS.snapshot()
+        if model_state['status'] != 'ready':
+            raise ValueError('请先加载模型，等待 CUDA 服务就绪。')
+        model = model_state['current']
+        if data.get('model') != model:
+            raise ValueError('所选模型与已加载模型不一致，请刷新模型状态。')
     if not isinstance(model, str) or not model.strip() or len(model) > 200:
         raise ValueError('无效的模型名称。')
     ident = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-') + secrets.token_hex(3)
@@ -194,6 +204,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/api/bootstrap':
             return self.reply(200, {'token': TOKEN, 'cases': read_json(REPO / 'tests/model-protocol/eval/pilot.json'),
                                     'model': ARGS.model_alias, 'upstream': ARGS.upstream})
+        if route == '/api/models':
+            return self.reply(200, MODELS.snapshot() if MODELS else {'managed': False, 'models': [], 'status': 'external'})
         if route == '/api/health':
             try:
                 status, body = upstream('/health', timeout=2)
@@ -226,6 +238,13 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get('X-Jingwei-Token') != TOKEN:
                 return self.reply(403, {'error': 'Refresh this local page'})
             with LOCK:
+                if self.path == '/api/models/switch':
+                    if not MODELS:
+                        raise ValueError('外部模型服务模式不支持切换进程，请使用 start.py 启动。')
+                    if BRIDGES or any(r['status'] == 'running' or (r.get('process') and r['process'].poll() is None) for r in RUNS.values()):
+                        raise ValueError('任务或模型请求尚未结束，请等待后再切换。')
+                    MODELS.switch(data.get('model'))
+                    return self.reply(202, MODELS.snapshot())
                 if self.path == '/api/runs':
                     return self.reply(201, create_run(data))
                 if self.path.endswith('/stop'):
@@ -243,6 +262,16 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(500, {'error': str(error)})
 
     def bridge(self, data):
+        global BRIDGES
+        with LOCK:
+            BRIDGES += 1
+        try:
+            return self.bridge_request(data)
+        finally:
+            with LOCK:
+                BRIDGES -= 1
+
+    def bridge_request(self, data):
         parts = self.path.split('/')
         if len(parts) != 6 or parts[3:] != ['v1', 'chat', 'completions']:
             return self.reply(404, {'error': 'Unknown model route'})
@@ -292,12 +321,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ARGS, SERVER
+    global ARGS, SERVER, MODELS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=3080)
     parser.add_argument('--upstream', default='http://127.0.0.1:18088')
     parser.add_argument('--model-alias', default='qwen38-4b-local')
     parser.add_argument('--data', type=pathlib.Path, default=REPO / 'results/evaluations/workbench')
+    parser.add_argument('--managed-models', action='store_true')
+    parser.add_argument('--models-dir', type=pathlib.Path, default=pathlib.Path.home() / '.local/share/luxiclaw-runtime/models')
+    parser.add_argument('--llama-server', default=str(pathlib.Path.home() / '.local/share/luxiclaw-runtime/llama/bin/llama-server'))
+    parser.add_argument('--model-port', type=int, default=18088)
+    parser.add_argument('--initial-model')
     ARGS = parser.parse_args()
     ARGS.data = ARGS.data.resolve()
     ARGS.data.mkdir(parents=True, exist_ok=True)
@@ -311,6 +345,15 @@ def main():
     if not (REPO / 'target/debug/jw-eval').exists():
         parser.error('Build jw-eval first; see README.md')
     SERVER = ThreadingHTTPServer(('127.0.0.1', ARGS.port), Handler)
+    if ARGS.managed_models:
+        ARGS.upstream = f'http://127.0.0.1:{ARGS.model_port}'
+        MODELS = ModelManager(ARGS.models_dir, ARGS.llama_server, ARGS.model_port, ARGS.data)
+        initial = ARGS.initial_model or (read_json(ARGS.data / 'last-model.json', {}) or {}).get('model')
+        if initial:
+            try:
+                MODELS.switch(initial)
+            except ValueError as error:
+                print(error, flush=True)
     def stop_server(_signum, _frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop_server)
@@ -323,6 +366,8 @@ def main():
         for run in RUNS.values():
             if run.get('process') and run['process'].poll() is None:
                 run['process'].terminate()
+        if MODELS:
+            MODELS.close()
         SERVER.server_close()
 
 
