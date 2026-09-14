@@ -7,6 +7,7 @@
 #![doc = include_str!("../../../docs/guide/src/file-checkpoint-store.md")]
 #![doc = include_str!("../../../docs/guide/src/durable-budget.md")]
 #![doc = include_str!("../../../docs/guide/src/budget-grants.md")]
+#![doc = include_str!("../../../docs/guide/src/budget-recovery.md")]
 
 #[cfg(test)]
 mod actions;

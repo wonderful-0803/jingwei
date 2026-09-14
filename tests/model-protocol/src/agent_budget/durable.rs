@@ -9,6 +9,7 @@ use std::time::Instant;
 use tokio::sync::Barrier;
 
 mod grants;
+mod recovery;
 
 fn binding() -> BudgetIdentity {
     BudgetIdentity {
@@ -96,6 +97,18 @@ impl Store {
 }
 
 impl BudgetCheckpointStore for Store {
+    fn compare_exchange_guarded<'a>(
+        &'a self,
+        expected: u64,
+        checkpoint: &'a BudgetCheckpoint,
+        guard: Arc<dyn Send + Sync>,
+    ) -> BudgetCheckpointFuture<'a, Result<BudgetCheckpointCommit, BudgetCheckpointStoreError>>
+    {
+        Box::pin(async move {
+            let _guard = guard;
+            self.compare_exchange(expected, checkpoint).await
+        })
+    }
     fn load<'a>(
         &'a self,
         _: &'a BudgetIdentity,
@@ -610,11 +623,7 @@ impl Disk {
 }
 impl Drop for Disk {
     fn drop(&mut self) {
-        let _ = fs::remove_file(self.log_path());
-        for name in ["budget.jsonl", "ready"] {
-            let _ = fs::remove_file(self.0.join(name));
-        }
-        let _ = fs::remove_dir(&self.0);
+        let _ = fs::remove_dir_all(&self.0);
     }
 }
 

@@ -181,7 +181,7 @@ TaskRunReport 使用独立的数字 `version: 1`；缺失、未知版本及字�
 
 ## 当前边界与下一步
 
-预算报告虽可序列化，但不是持久快照，反序列化不能创建可执行账本。本章 with_budget 入口的跨 run 累计限于同一内存账本。需要跨进程续跑时，显式使用[快照](budget-checkpoints.md)、[文件存储](file-checkpoint-store.md)与[持久占用入口](durable-budget.md)，不能通过重启重置预算。安全边界上的[审计增额](budget-grants.md)已提供；冻结后的核验仍未交付。
+预算报告虽可序列化，但不是持久快照，反序列化不能创建可执行账本。本章 with_budget 入口的跨 run 累计限于同一内存账本。需要跨进程续跑时，显式使用[快照](budget-checkpoints.md)、[文件存储](file-checkpoint-store.md)与[持久占用入口](durable-budget.md)，不能通过重启重置预算。安全边界上的[审计增额](budget-grants.md)已提供；原始最终候选的[审计恢复](budget-recovery.md)已提供，其他冻结情况继续保守拒绝。
 
 [有限模型调度](model-scheduling.md)提供执行槽、等待队列、总在途容量与单次超时控制，共享 Task 预算补充累计限制。显式持久模式还会等待最终检查点提交，返回确认镜像；失败时 Durability 外层保留原始 Session outcome。当前正常续跑与故障冻结不代表 F4 整体验收或完整恢复完成。
 

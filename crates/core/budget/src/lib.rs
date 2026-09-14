@@ -5,6 +5,9 @@
 //! These handles do not interrupt work or establish durable recovery by themselves.
 
 use futures::task::AtomicWaker;
+mod recovery;
+pub use recovery::*;
+
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -92,6 +95,7 @@ struct State {
     recovery_frozen: bool,
     checkpoint_revision: u64,
     grants: Vec<BudgetGrantRecord>,
+    recoveries: Vec<BudgetRecoveryRecord>,
     charged: BudgetAmounts,
     reserved: BudgetAmounts,
     usage: BudgetUsageReport,

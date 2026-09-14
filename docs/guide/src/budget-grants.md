@@ -69,6 +69,6 @@ async fn apply_approved_grant(
 
 ## 存储与版本
 
-新导出快照为 V3；V1 普通镜像、V2 占用仍可读，不能携带 V3 审计。Session TaskRunReport 与文件外层仍为版本 1。自定义存储必须在实际 CAS 和链读取中调用 `validate_transition(previous)`，保护旧审计前缀并拒绝无审计增额。默认[文件存储](file-checkpoint-store.md)已接入该校验。
+没有恢复审计的新导出快照为 V3，带恢复审计时保持 V4；V1 普通镜像、V2 占用仍可读，不能携带 V3 审计。Session TaskRunReport 与文件外层仍为版本 1。自定义存储必须在实际 CAS 和链读取中调用 `validate_transition(previous)`，保护旧审计前缀并拒绝无审计增额。默认[文件存储](file-checkpoint-store.md)已接入该校验。
 
-目前 Session JSONL 没有跨进程单写者锁，宿主必须自行保证独占。冻结后的审计解除、完整故障矩阵和 Task 业务状态恢复仍在后续开发；本章不是完整故障恢复指南。
+Session JSONL 已提供跨进程单写者锁，原始最终候选的恢复见[预算候选恢复](budget-recovery.md)。宿主增额仍须保持所有权直至存储 IO 排空。其他冻结情况、完整故障矩阵和 Task 业务状态恢复仍在后续开发。

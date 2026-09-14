@@ -74,6 +74,15 @@ pub trait SessionPersistence: Send + Sync {
     ) -> SessionFuture<'a, Result<PersistAppendOutcome, SessionPersistenceError>>;
 }
 
+/// Trusted exclusive Session ownership during recovery. Implementations must keep
+/// old cooperative writers isolated until this object and all history IO finish.
+/// This is a host seam, not a claim that an arbitrary plugin is sandboxed.
+pub trait SessionRecoveryOwnership: Send + Sync {
+    fn session_id(&self) -> &SessionId;
+    fn ownership_id(&self) -> &str;
+    fn history(&self) -> SessionFuture<'_, Result<Vec<SessionEvent>, SessionPersistenceError>>;
+}
+
 /// One proposed event. Its stable ID supports exact retry, while canonical address fields are
 /// deliberately absent.
 #[derive(Clone, Debug)]

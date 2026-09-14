@@ -50,3 +50,5 @@ JW-04-d2-a 新增显式选择的 jingwei-budget-file，使用 Rust 标准文件�
 JW-04-d2-b 增加 BudgetExecutionLease、with_durable_budget 与确认回执；into_budget_parts 现在同时移交可选持久租约，自定义 runtime 需要处理它，不能忽略。新快照导出为 V2，V1 普通镜像可读，但不能承载占用；TaskRunReport 和文件外层版本仍为 1。独立工程增加真实 Session JSONL/预算文件的跨进程运行与中断测试，只终止自身创建的测试子进程。详见[持久预算运行](durable-budget.md)。
 
 JW-04-d2-c1 将新导出快照升级为 V3，增加宿主[审计增额](budget-grants.md)和稳定操作 ID；V1/V2 读取规则保留。自定义存储须在真实 CAS 与链读取中增加 validate_transition 校验，不再仅检查 revision。审计限制有限，核心不新增 IO 或第三方依赖；冻结占用仍不能通过增额解除。
+
+JW-04-d2-c2 增加 JSONL 跨进程写者锁和[预算候选恢复](budget-recovery.md)。带恢复审计的检查点升级为 V4；自定义存储须支持 compare_exchange_guarded，将所有权保留到所有已接收 IO 结束，默认实现拒绝恢复。预算核心新增对既有 jingwei-session 契约 crate 的依赖，没有新增第三方依赖或 IO runtime。

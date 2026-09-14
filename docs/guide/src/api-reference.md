@@ -20,7 +20,7 @@ cargo doc --workspace --all-features --no-deps --locked
 | 自定义 Agent 与回合 | `jingwei::agent` | [任务预算](task-budget.md) |
 | 文本、原生工具、JSON Schema 生成 | `jingwei::llm` | [模型协议](model-protocol.md) |
 | 单步 CallTool / Final / AskUser | `jingwei::action`，需启用 `actions` feature | [单步动作](action-step.md) |
-| 共享账本、检查点与宿主增额 | `jingwei::budget` | [持久预算](durable-budget.md)、[审计增额](budget-grants.md) |
+| 共享账本、检查点与宿主增额 | `jingwei::budget` | [持久预算](durable-budget.md)、[审计增额](budget-grants.md)、[候选恢复](budget-recovery.md) |
 | 工具、会话与规范事件 | `jingwei::tool`、`jingwei::session`、`jingwei::event` | [模型调度](model-scheduling.md)、[运行报告](task-budget.md) |
 | 本地文件检查点适配器 | 单独依赖 `jingwei-budget-file` | [文件检查点](file-checkpoint-store.md) |
 

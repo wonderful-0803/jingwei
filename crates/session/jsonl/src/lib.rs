@@ -1,7 +1,7 @@
 //! Durable append-only JSONL implementation of the Session persistence seam.
 
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -160,6 +160,7 @@ pub struct JsonlSessionPersistence {
 #[derive(Default)]
 struct SessionState {
     uncertain: Option<SessionPersistenceError>,
+    writer: Option<WriterLock>,
 }
 
 trait SyncData: Send + Sync {
@@ -213,13 +214,28 @@ impl JsonlSessionPersistence {
         session_id: &SessionId,
         gate: &Mutex<SessionState>,
     ) -> Result<Vec<SessionEvent>, SessionPersistenceError> {
-        let state = gate
+        let mut state = gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        ensure_writer(&self.root, session_id, &mut state)?;
         if let Some(error) = &state.uncertain {
             return Err(error.clone());
         }
-        read_physical_log(&session_file_path(&self.root, session_id), session_id)
+        let path = session_file_path(&self.root, session_id);
+        let events = read_physical_log(&path, session_id)?;
+        if !events.is_empty() {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .map_err(|e| io_error("load_open", e, CommitCertainty::DefinitelyNotCommitted))?;
+            if let Err(error) = self.sync_data.sync_data(&file) {
+                let error = io_error("load_sync_data", error, CommitCertainty::Indeterminate);
+                state.uncertain = Some(error.clone());
+                return Err(error);
+            }
+        }
+        Ok(events)
     }
 
     fn commit_sync(
@@ -236,6 +252,7 @@ impl JsonlSessionPersistence {
         let mut state = gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        ensure_writer(&self.root, &event.session_id, &mut state)?;
         if let Some(error) = &state.uncertain {
             return Err(error.clone());
         }
@@ -483,6 +500,83 @@ pub fn session_id_from_file_path(path: &Path) -> Option<SessionId> {
     decode_session_id(encoded)
 }
 
+// Lock files are permanent: unlink/replacement would permit two live lock inodes.
+fn ensure_writer(
+    root: &Path,
+    session: &SessionId,
+    state: &mut SessionState,
+) -> Result<(), SessionPersistenceError> {
+    if state.writer.is_some() {
+        return Ok(());
+    }
+    fs::create_dir_all(root).map_err(|e| {
+        io_error(
+            "writer_directory",
+            e,
+            CommitCertainty::DefinitelyNotCommitted,
+        )
+    })?;
+    let path = session_file_path(root, session).with_extension("writer.lock");
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|e| io_error("writer_open", e, CommitCertainty::DefinitelyNotCommitted))?;
+    file.try_lock().map_err(|e| SessionPersistenceError::Io {
+        operation: "session_writer_lock",
+        certainty: CommitCertainty::DefinitelyNotCommitted,
+        message: match e {
+            TryLockError::WouldBlock => "Session has a live writer or recovery owner".into(),
+            TryLockError::Error(e) => e.to_string(),
+        },
+    })?;
+    state.writer = Some(WriterLock(file));
+    Ok(())
+}
+
+struct WriterLock(File);
+impl Drop for WriterLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+/// Exclusive read-only recovery handle. Acquire with a fresh provider, never by
+/// borrowing a live runtime's writer. Dropping releases ownership after owned IO.
+pub struct JsonlRecoveryOwnership {
+    persistence: JsonlSessionPersistence,
+    session: SessionId,
+    owner: String,
+}
+
+impl JsonlRecoveryOwnership {
+    pub async fn acquire(
+        root: impl Into<PathBuf>,
+        session: SessionId,
+    ) -> Result<Self, SessionPersistenceError> {
+        let persistence = JsonlSessionPersistence::new(root);
+        persistence.load(&session).await?;
+        Ok(Self {
+            persistence,
+            session,
+            owner: jingwei_core::BudgetExecutionId::new().to_string(),
+        })
+    }
+}
+impl jingwei_session::SessionRecoveryOwnership for JsonlRecoveryOwnership {
+    fn session_id(&self) -> &SessionId {
+        &self.session
+    }
+    fn ownership_id(&self) -> &str {
+        &self.owner
+    }
+    fn history(&self) -> SessionFuture<'_, Result<Vec<SessionEvent>, SessionPersistenceError>> {
+        self.persistence.load(&self.session)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::future::{Future, poll_fn};
@@ -658,13 +752,16 @@ mod tests {
         ));
         sync_data.release();
         if was_pending {
-            shutdown.await.unwrap();
+            shutdown.as_mut().await.unwrap();
         }
+        drop(shutdown);
 
         assert!(
             was_pending,
             "shutdown returned while an accepted blocking commit was still running"
         );
+        drop(persistence);
+        drop(registry);
         assert_eq!(
             JsonlSessionPersistence::new(&root)
                 .load(&event.session_id)
@@ -722,6 +819,7 @@ mod tests {
             })
         ));
 
+        drop(persistence);
         let restarted = JsonlSessionPersistence::new(&root);
         assert_eq!(restarted.load(&session_id).await.unwrap(), [expected]);
         std::fs::remove_dir_all(root).unwrap();

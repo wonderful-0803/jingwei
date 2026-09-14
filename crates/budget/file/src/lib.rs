@@ -86,7 +86,7 @@ impl Inner {
         Ok(Permit(Arc::clone(self)))
     }
 
-    fn locked_file(&self) -> Result<File> {
+    fn locked_file(&self) -> Result<LockedFile> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -99,7 +99,7 @@ impl Inner {
             TryLockError::WouldBlock => BudgetCheckpointStoreError::Busy,
             TryLockError::Error(error) => not_committed(error),
         })?;
-        Ok(file)
+        Ok(LockedFile(file))
     }
 
     fn read_latest(
@@ -271,9 +271,19 @@ impl BudgetCheckpointStore for FileBudgetCheckpointStore {
         expected_revision: u64,
         checkpoint: &'a BudgetCheckpoint,
     ) -> BudgetCheckpointFuture<'a, Result<BudgetCheckpointCommit>> {
+        self.compare_exchange_guarded(expected_revision, checkpoint, Arc::new(()))
+    }
+
+    fn compare_exchange_guarded<'a>(
+        &'a self,
+        expected_revision: u64,
+        checkpoint: &'a BudgetCheckpoint,
+        guard: Arc<dyn Send + Sync>,
+    ) -> BudgetCheckpointFuture<'a, Result<BudgetCheckpointCommit>> {
         Box::pin(async move {
             let checkpoint = checkpoint.clone();
             self.run(move |inner| {
+                let _guard = guard;
                 checkpoint.validate_successor(expected_revision)?;
                 let mut file = inner.locked_file()?;
                 let (latest, log_bytes) = inner.read_latest(&mut file, checkpoint.identity())?;
@@ -374,5 +384,25 @@ fn indeterminate(error: impl ToString) -> BudgetCheckpointStoreError {
     BudgetCheckpointStoreError::Storage {
         certainty: BudgetCheckpointCommitCertainty::Indeterminate,
         message: error.to_string(),
+    }
+}
+
+// Explicit unlock also releases an inherited lock if another thread forks a
+// process before this file handle closes. The parent operation has ended.
+struct LockedFile(File);
+impl std::ops::Deref for LockedFile {
+    type Target = File;
+    fn deref(&self) -> &File {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for LockedFile {
+    fn deref_mut(&mut self) -> &mut File {
+        &mut self.0
+    }
+}
+impl Drop for LockedFile {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
     }
 }

@@ -15,7 +15,8 @@ JW-04-d1 增加[预算快照与恢复原语](docs/guide/src/budget-checkpoints.m
 
 JW-04-d2-a 提供可选的[本地文件检查点存储](docs/guide/src/file-checkpoint-store.md)：有界 IO、跨进程 CAS、精确重试和损坏日志拒绝。
 JW-04-d2-b 接入[持久预算运行](docs/guide/src/durable-budget.md)：先确认唯一占用，再执行；日志边界核验和最终检查点屏障由 canonical runtime 负责。
-JW-04-d2-c1 提供[宿主审计增额](docs/guide/src/budget-grants.md)：在安全边界原子保存新上限和审计记录，支持幂等重试且保留累计消耗。冻结解除及完整任务恢复仍待后续验收。
+JW-04-d2-c1 提供[宿主审计增额](docs/guide/src/budget-grants.md)：在安全边界原子保存新上限和审计记录，支持幂等重试且保留累计消耗。其他中断冻结及完整任务恢复仍待后续验收。
+JW-04-d2-c2 提供 JSONL 跨进程写者所有权与[原始预算候选恢复](docs/guide/src/budget-recovery.md)：完整日志核验、原子恢复审计和取消后的 IO 所有权保留。
 这些开发功能不包含在下方固定的旧提交中；使用新功能须基于同一个实际取得的源码快照，
 不能把当前进度理解为已发布到 crates.io 的完整 v0.1。
 

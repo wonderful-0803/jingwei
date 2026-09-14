@@ -55,6 +55,7 @@ export default defineConfig({
           { text: '文件检查点存储', link: '/file-checkpoint-store' },
           { text: '持久预算运行', link: '/durable-budget' },
           { text: '宿主审计增额', link: '/budget-grants' },
+          { text: '预算候选恢复', link: '/budget-recovery' },
         ],
       },
       {

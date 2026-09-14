@@ -1,6 +1,6 @@
 # 预算快照与恢复原语
 
-本章适用于编写宿主持久化接入的开发者。先阅读[任务预算](task-budget.md)。这里介绍底层原语；实际文件适配器和 runtime 持久占用路径分别见[文件存储](file-checkpoint-store.md)与[持久预算运行](durable-budget.md)。安全边界上的[审计增额](budget-grants.md)已提供，冻结后的处理仍未完成。
+本章适用于编写宿主持久化接入的开发者。先阅读[任务预算](task-budget.md)。这里介绍底层原语；实际文件适配器和 runtime 持久占用路径分别见[文件存储](file-checkpoint-store.md)与[持久预算运行](durable-budget.md)。安全边界上的[审计增额](budget-grants.md)已提供，原始最终候选的[审计恢复](budget-recovery.md)已提供，其他冻结情况仍待后续。
 
 ## 快照不是运行报告
 

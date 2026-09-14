@@ -1,0 +1,31 @@
+    Checking jingwei-core v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/core)
+    Checking jingwei-session v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/session)
+    Checking jingwei-budget v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/budget)
+error[E0616]: field `anchor` of struct `checkpoint::BudgetCheckpoint` is private
+   --> crates/core/budget/src/recovery.rs:189:22
+    |
+189 |             evidence.anchor = record.confirmed_anchor.clone();
+    |                      ^^^^^^ private field
+
+error[E0616]: field `execution_id` of struct `checkpoint::BudgetCheckpoint` is private
+   --> crates/core/budget/src/recovery.rs:190:22
+    |
+190 |             evidence.execution_id = None;
+    |                      ^^^^^^^^^^^^ private field
+
+error[E0616]: field `run_id` of struct `checkpoint::BudgetCheckpoint` is private
+   --> crates/core/budget/src/recovery.rs:191:22
+    |
+191 |             evidence.run_id = None;
+    |                      ^^^^^^ private field
+
+error[E0616]: field `recovery_frozen` of struct `checkpoint::BudgetCheckpoint` is private
+   --> crates/core/budget/src/recovery.rs:192:22
+    |
+192 |             evidence.recovery_frozen = false;
+    |                      ^^^^^^^^^^^^^^^ private field
+
+For more information about this error, try `rustc --explain E0616`.
+error: could not compile `jingwei-budget` (lib) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `jingwei-budget` (lib test) due to 4 previous errors
