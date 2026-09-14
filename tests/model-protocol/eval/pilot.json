@@ -1,0 +1,146 @@
+[
+  {
+    "id": "doc-copy",
+    "domain": "documents",
+    "prompt": "读取 source，将原文写到 note。 只允许写入 note。",
+    "initial": {
+      "source": "会议时间：周五14:00"
+    },
+    "expected": {
+      "source": "会议时间：周五14:00",
+      "note": "会议时间：周五14:00"
+    },
+    "writable": [
+      "note"
+    ],
+    "fake_actions": [
+      {
+        "action": "call_tool",
+        "name": "read_record",
+        "arguments": {
+          "key": "source"
+        }
+      },
+      {
+        "action": "call_tool",
+        "name": "write_record",
+        "arguments": {
+          "key": "note",
+          "value": "会议时间：周五14:00"
+        }
+      },
+      {
+        "action": "final",
+        "text": "完成"
+      }
+    ]
+  },
+  {
+    "id": "doc-extract",
+    "domain": "documents",
+    "prompt": "读取 source，把地点写到 city，只写城市名。 只允许写入 city。",
+    "initial": {
+      "source": "负责人：林；地点：杭州"
+    },
+    "expected": {
+      "source": "负责人：林；地点：杭州",
+      "city": "杭州"
+    },
+    "writable": [
+      "city"
+    ],
+    "fake_actions": [
+      {
+        "action": "call_tool",
+        "name": "read_record",
+        "arguments": {
+          "key": "source"
+        }
+      },
+      {
+        "action": "call_tool",
+        "name": "write_record",
+        "arguments": {
+          "key": "city",
+          "value": "杭州"
+        }
+      },
+      {
+        "action": "final",
+        "text": "完成"
+      }
+    ]
+  },
+  {
+    "id": "order-ready",
+    "domain": "orders",
+    "prompt": "读取 stock；若为 available，将 status 设置为 ready。 只允许写入 status。",
+    "initial": {
+      "stock": "available"
+    },
+    "expected": {
+      "stock": "available",
+      "status": "ready"
+    },
+    "writable": [
+      "status"
+    ],
+    "fake_actions": [
+      {
+        "action": "call_tool",
+        "name": "read_record",
+        "arguments": {
+          "key": "stock"
+        }
+      },
+      {
+        "action": "call_tool",
+        "name": "write_record",
+        "arguments": {
+          "key": "status",
+          "value": "ready"
+        }
+      },
+      {
+        "action": "final",
+        "text": "完成"
+      }
+    ]
+  },
+  {
+    "id": "order-hold",
+    "domain": "orders",
+    "prompt": "读取 stock；若为 empty，将 status 设置为 hold。 只允许写入 status。",
+    "initial": {
+      "stock": "empty"
+    },
+    "expected": {
+      "stock": "empty",
+      "status": "hold"
+    },
+    "writable": [
+      "status"
+    ],
+    "fake_actions": [
+      {
+        "action": "call_tool",
+        "name": "read_record",
+        "arguments": {
+          "key": "stock"
+        }
+      },
+      {
+        "action": "call_tool",
+        "name": "write_record",
+        "arguments": {
+          "key": "status",
+          "value": "hold"
+        }
+      },
+      {
+        "action": "final",
+        "text": "完成"
+      }
+    ]
+  }
+]

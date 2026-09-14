@@ -1,0 +1,16 @@
+{
+  "backend": "openai",
+  "model": "REPLACE_WITH_INSTALLED_MODEL",
+  "endpoint": "http://127.0.0.1:8080/v1",
+  "api_key_env": null,
+  "template_revision": "RECORD_SERVER_TEMPLATE",
+  "weights": "RECORD_EXACT_WEIGHTS",
+  "quantization": "RECORD_QUANTIZATION",
+  "device": "RECORD_DEVICE",
+  "protocol": "json",
+  "tasks": "pilot.json",
+  "runs": 1,
+  "max_steps": 6,
+  "max_tokens": 512,
+  "timeout_seconds": 30
+}

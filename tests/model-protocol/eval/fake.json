@@ -1,0 +1,16 @@
+{
+  "backend": "fake",
+  "model": "scripted-pilot-v1",
+  "endpoint": null,
+  "api_key_env": null,
+  "template_revision": "pilot-v1",
+  "weights": "scripted",
+  "quantization": "not-applicable",
+  "device": "host",
+  "protocol": "json",
+  "tasks": "pilot.json",
+  "runs": 1,
+  "max_steps": 6,
+  "max_tokens": 512,
+  "timeout_seconds": 30
+}

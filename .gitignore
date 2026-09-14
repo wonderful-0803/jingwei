@@ -3,3 +3,6 @@
 # Never commit target build directories, at any depth.
 target/
 /pelican-ride.html
+
+# Private model evaluation outputs (task definitions remain tracked).
+/results/evaluations/

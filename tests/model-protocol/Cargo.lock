@@ -884,6 +884,7 @@ dependencies = [
  "jingwei-task-file",
  "jingwei-task-runtime",
  "jingwei-tool-runtime",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-util",
