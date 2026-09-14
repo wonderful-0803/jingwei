@@ -228,3 +228,5 @@ JW-05-a 已接入[完整 assistant 回复](docs/guide/src/assistant-messages.md)
 JW-05-d 增加[工具视图、结果引用与上下文动作接入](docs/guide/src/tool-views.md)，保留授权边界和原始执行证据。
 
 JW-06-a 提供可选的[有限参考 Agent](docs/guide/src/reference-agent.md)：显式注册、有限步骤驱动、等待用户和停止报告，模型完成声明不等同于业务验证。
+
+JW-06-b 增加宿主完成证据检查、连续相同动作/反馈/状态检测与有限轮询配置；拒绝完成立即停止，仍复用原 Task 预算。

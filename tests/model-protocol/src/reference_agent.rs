@@ -715,3 +715,220 @@ async fn clock_regression_and_context_rejection_stop_without_extra_inference() {
     assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 0);
     fixture.harness.shutdown().await.unwrap();
 }
+
+struct Completion(CompletionDecision);
+impl CompletionChecker for Completion {
+    fn check(
+        &self,
+        input: CompletionInput<'_>,
+    ) -> Result<CompletionDecision, ReferenceConfigError> {
+        assert_eq!(input.claim, "已找到资料");
+        Ok(self.0.clone())
+    }
+}
+struct ChangingState(AtomicUsize);
+impl ReferenceState for ChangingState {
+    fn version(&self, _: &CheckContext<'_>) -> Result<Option<String>, ReferenceConfigError> {
+        Ok(Some(self.0.fetch_add(1, Ordering::SeqCst).to_string()))
+    }
+}
+#[tokio::test]
+async fn completion_requires_host_evidence_and_rejection_never_retries() {
+    for json_mode in [false, true] {
+        for decision in [
+            CompletionDecision::Verified {
+                evidence: "host:receipt:42".into(),
+            },
+            CompletionDecision::Rejected {
+                reason: "receipt missing".into(),
+            },
+            CompletionDecision::Verified {
+                evidence: " ".into(),
+            },
+        ] {
+            let verified = matches!(&decision, CompletionDecision::Verified { evidence } if evidence.trim() != "");
+            let rejected = matches!(&decision, CompletionDecision::Rejected { .. });
+            let agent = ReferenceAgent::new(config(8, json_mode), policies())
+                .unwrap()
+                .with_checks(ReferenceChecks {
+                    completion: Arc::new(Completion(decision.clone())),
+                    ..Default::default()
+                })
+                .unwrap();
+            let fixture = RefFixture::agent(
+                Arc::new(agent),
+                vec![final_response(json_mode)],
+                false,
+                ToolMode::Success,
+            )
+            .await;
+            let result = fixture
+                .harness
+                .run_turn(&SessionId::new(), "reference", "finish")
+                .await;
+            assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
+            let run = fixture.reports().remove(0);
+            assert_eq!(run.business_verified, verified);
+            assert_eq!(
+                run.stop,
+                if verified {
+                    ReferenceStop::BusinessVerified
+                } else if rejected {
+                    ReferenceStop::CompletionRejected
+                } else {
+                    ReferenceStop::PolicyRejected
+                }
+            );
+            assert_eq!(result.is_ok(), verified);
+            if verified {
+                assert_eq!(
+                    result.unwrap().artifact().unwrap()["business_verified"],
+                    true
+                );
+                assert_eq!(run.completion, Some(decision));
+            }
+            fixture.harness.shutdown().await.unwrap();
+        }
+    }
+}
+#[tokio::test]
+async fn repeated_calls_stop_after_confirmed_third_result() {
+    for json_mode in [false, true] {
+        let fixture = RefFixture::new(
+            config(8, json_mode),
+            vec![call_response(json_mode); 3],
+            true,
+            ToolMode::Success,
+        )
+        .await;
+        let result = fixture
+            .harness
+            .run_turn(&SessionId::new(), "reference", "repeat")
+            .await;
+        assert!(result.is_err());
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 3);
+        assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 3);
+        assert_eq!(fixture.steps().len(), 3);
+        let run = fixture.reports().remove(0);
+        assert_eq!(run.stop, ReferenceStop::NoProgress);
+        assert_eq!(run.repeated_observations, 3);
+        assert!(fixture.log.lock().unwrap().iter().any(|e| matches!(&e.kind, SessionEventKind::TaskRunReport { report } if report.budget.charged.steps == 3 && report.capabilities_drained)));
+        fixture.harness.shutdown().await.unwrap();
+    }
+}
+#[tokio::test]
+async fn explicit_polling_and_changing_state_allow_progress_but_keep_step_limit() {
+    for json_mode in [false, true] {
+        for changing in [false, true] {
+            let mut checks = ReferenceChecks::default();
+            if changing {
+                checks.state = Arc::new(ChangingState(AtomicUsize::new(0)));
+            } else {
+                checks.progress.polling_limits.insert("lookup".into(), 5);
+            }
+            let agent = ReferenceAgent::new(config(4, json_mode), policies())
+                .unwrap()
+                .with_checks(checks)
+                .unwrap();
+            let fixture = RefFixture::agent(
+                Arc::new(agent),
+                vec![call_response(json_mode); 4],
+                true,
+                ToolMode::Success,
+            )
+            .await;
+            fixture
+                .harness
+                .run_turn(&SessionId::new(), "reference", "poll")
+                .await
+                .unwrap_err();
+            assert_eq!(fixture.calls.load(Ordering::SeqCst), 4);
+            assert_eq!(fixture.reports()[0].stop, ReferenceStop::StepLimit);
+            assert_eq!(
+                fixture.reports()[0].repeated_observations,
+                if changing { 1 } else { 4 }
+            );
+            fixture.harness.shutdown().await.unwrap();
+        }
+    }
+}
+#[tokio::test]
+async fn oversized_progress_observation_stops_after_preserving_execution() {
+    let mut checks = ReferenceChecks::default();
+    checks.progress.max_observation_bytes = 1;
+    let agent = ReferenceAgent::new(config(8, false), policies())
+        .unwrap()
+        .with_checks(checks)
+        .unwrap();
+    let fixture = RefFixture::agent(
+        Arc::new(agent),
+        vec![call_response(false)],
+        true,
+        ToolMode::Success,
+    )
+    .await;
+    fixture
+        .harness
+        .run_turn(&SessionId::new(), "reference", "lookup")
+        .await
+        .unwrap_err();
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.steps()[0].tool_events.len(), 2);
+    assert_eq!(fixture.reports()[0].stop, ReferenceStop::PolicyRejected);
+    fixture.harness.shutdown().await.unwrap();
+}
+#[test]
+fn progress_limits_are_finite_and_old_reports_remain_unverified() {
+    for limit in [0, 1, 1025] {
+        let mut checks = ReferenceChecks::default();
+        checks.progress.max_repetitions = limit;
+        assert!(
+            ReferenceAgent::new(config(8, false), policies())
+                .unwrap()
+                .with_checks(checks)
+                .is_err()
+        );
+    }
+    let old = serde_json::json!({
+        "version": 1, "session_id": SessionId::new(), "turn_id": TurnId::new(),
+        "task_id": null, "max_steps": 8, "attempted_steps": 1,
+        "confirmed_steps": 1, "stop": "ModelClaimedComplete", "business_verified": false
+    });
+    let report: ReferenceRunReport = serde_json::from_value(old).unwrap();
+    assert_eq!(report.completion, None);
+    assert!(!report.business_verified);
+}
+
+#[tokio::test]
+async fn changed_arguments_reset_consecutive_repetition() {
+    for json_mode in [false, true] {
+        let changed = if json_mode {
+            json_response(
+                json!({"action":"call_tool","name":"lookup","arguments":{"query":"different"}}),
+            )
+        } else {
+            native("lookup", json!({"query":"different"}))
+        };
+        let fixture = RefFixture::new(
+            config(5, json_mode),
+            vec![
+                call_response(json_mode),
+                call_response(json_mode),
+                changed,
+                call_response(json_mode),
+                final_response(json_mode),
+            ],
+            true,
+            ToolMode::Success,
+        )
+        .await;
+        fixture
+            .harness
+            .run_turn(&SessionId::new(), "reference", "different queries")
+            .await
+            .unwrap();
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 4);
+        assert_eq!(fixture.reports()[0].repeated_observations, 1);
+        fixture.harness.shutdown().await.unwrap();
+    }
+}

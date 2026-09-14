@@ -21,6 +21,9 @@ use jingwei_tool::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+mod checks;
+pub use checks::*;
+
 pub const REFERENCE_EVENT_PLUGIN: &str = "jingwei.reference";
 pub const REFERENCE_STEP_EVENT: &str = "step_v1";
 pub const REFERENCE_RUN_EVENT: &str = "run_v1";
@@ -94,6 +97,9 @@ pub struct ReferenceAgentPolicies {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ReferenceStop {
     ModelClaimedComplete,
+    BusinessVerified,
+    CompletionRejected,
+    NoProgress,
     WaitingForInput,
     StepLimit,
     ContextRejected,
@@ -139,13 +145,18 @@ pub struct ReferenceRunReport {
     pub attempted_steps: u32,
     pub confirmed_steps: u32,
     pub stop: ReferenceStop,
-    /// This batch never verifies business success from a model's Final claim.
+    /// True only when the host completion checker supplies evidence.
     pub business_verified: bool,
+    #[serde(default)]
+    pub completion: Option<CompletionDecision>,
+    #[serde(default)]
+    pub repeated_observations: u32,
 }
 
 pub struct ReferenceAgent {
     config: ReferenceAgentConfig,
     policies: ReferenceAgentPolicies,
+    checks: ReferenceChecks,
 }
 impl ReferenceAgent {
     pub fn new(
@@ -165,7 +176,17 @@ impl ReferenceAgent {
         {
             return Err(ReferenceConfigError);
         }
-        Ok(Self { config, policies })
+        Ok(Self {
+            config,
+            policies,
+            checks: ReferenceChecks::default(),
+        })
+    }
+    /// Install data-only host checks. Limits are validated before any execution.
+    pub fn with_checks(mut self, checks: ReferenceChecks) -> Result<Self, ReferenceConfigError> {
+        checks.progress.validate()?;
+        self.checks = checks;
+        Ok(self)
     }
     async fn emit(
         &self,
@@ -252,6 +273,7 @@ impl ReferenceAgent {
         let step = ContextualActionStep {
             protocol: self.config.protocol,
         };
+        let mut previous = None;
         for ordinal in 1..=self.config.max_steps {
             if ctx.cancellation().is_cancelled() {
                 return Err(AgentError::Cancelled);
@@ -273,7 +295,21 @@ impl ReferenceAgent {
                 return Err(failed("reference_content_expired", "content scope expired"));
             }
             run.attempted_steps = ordinal;
-            let state_version = format!("reference-v1:{}:{}", input.turn_id, ordinal);
+            let check_context = CheckContext {
+                task_id: &task,
+                turn_id: &input.turn_id,
+            };
+            let state_version = self.checks.state.version(&check_context).map_err(|_| {
+                run.stop = ReferenceStop::PolicyRejected;
+                failed("reference_state", "host state observation failed")
+            })?;
+            if state_version
+                .as_ref()
+                .is_some_and(|v| v.len() > 4096 || v.trim().is_empty())
+            {
+                run.stop = ReferenceStop::PolicyRejected;
+                return Err(failed("reference_state", "invalid host state version"));
+            }
             // ModelRuntime already charges a step for each accepted inference;
             // do not double-charge it with AgentBudget::consume_step here.
             let report = step
@@ -284,7 +320,7 @@ impl ReferenceAgent {
                         system: &self.config.system,
                         current: &current,
                         pinned_turns: &self.config.pinned_turns,
-                        state_version: Some(&state_version),
+                        state_version: state_version.as_deref(),
                         target: &self.config.target,
                         budget: self.config.context_budget,
                         limits: self.config.context_limits,
@@ -333,12 +369,47 @@ impl ReferenceAgent {
             run.confirmed_steps += 1;
             match report.step.outcome {
                 StepOutcome::Final { text } => {
-                    run.stop = ReferenceStop::ModelClaimedComplete;
+                    let decision = self
+                        .checks
+                        .completion
+                        .check(CompletionInput {
+                            context: check_context,
+                            claim: &text,
+                            state_version: state_version.as_deref(),
+                        })
+                        .map_err(|_| {
+                            run.stop = ReferenceStop::PolicyRejected;
+                            failed("reference_completion_policy", "completion checker failed")
+                        })?;
+                    if !decision.valid() {
+                        run.stop = ReferenceStop::PolicyRejected;
+                        return Err(failed(
+                            "reference_completion_policy",
+                            "invalid completion evidence",
+                        ));
+                    }
+                    run.completion = Some(decision.clone());
+                    match &decision {
+                        CompletionDecision::Unverified => {
+                            run.stop = ReferenceStop::ModelClaimedComplete
+                        }
+                        CompletionDecision::Verified { .. } => {
+                            run.stop = ReferenceStop::BusinessVerified;
+                            run.business_verified = true;
+                        }
+                        CompletionDecision::Rejected { .. } => {
+                            run.stop = ReferenceStop::CompletionRejected;
+                            return Err(failed(
+                                "reference_completion_rejected",
+                                "host completion check rejected the claim",
+                            ));
+                        }
+                    }
                     return Ok(AgentTurnOutput {
                         final_text: text,
                         outcome: TurnOutcome::Completed,
                         artifact: Some(
-                            json!({"type":"reference_completion_v1","task_id":task,"business_verified":false}),
+                            json!({"type":"reference_completion_v1","task_id":task,"business_verified":run.business_verified,"completion":decision}),
                         ),
                     });
                 }
@@ -359,7 +430,43 @@ impl ReferenceAgent {
                         "tool failed; no retry was attempted",
                     ));
                 }
-                StepOutcome::ToolCompleted { .. } => current = report.next_current,
+                StepOutcome::ToolCompleted { execution } => {
+                    let mut key = BoundedPayload {
+                        bytes: vec![],
+                        max: self.checks.progress.max_observation_bytes,
+                    };
+                    serde_json::to_writer(
+                        &mut key,
+                        &(
+                            execution.call().name.as_str(),
+                            &execution.call().arguments,
+                            &execution.result().outcome,
+                            &state_version,
+                        ),
+                    )
+                    .map_err(|_| {
+                        run.stop = ReferenceStop::PolicyRejected;
+                        failed(
+                            "reference_progress_limit",
+                            "progress observation exceeds its limit",
+                        )
+                    })?;
+                    run.repeated_observations = if previous.as_ref() == Some(&key.bytes) {
+                        run.repeated_observations + 1
+                    } else {
+                        1
+                    };
+                    previous = Some(key.bytes);
+                    let limit = self.checks.progress.limit(&execution.call().name);
+                    if run.repeated_observations >= limit {
+                        run.stop = ReferenceStop::NoProgress;
+                        return Err(failed(
+                            "reference_no_progress",
+                            "repeated action and feedback without state change",
+                        ));
+                    }
+                    current = report.next_current;
+                }
             }
         }
         run.stop = ReferenceStop::StepLimit;
@@ -386,6 +493,8 @@ impl Agent for ReferenceAgent {
                 confirmed_steps: 0,
                 stop: ReferenceStop::RuntimeFailure,
                 business_verified: false,
+                completion: None,
+                repeated_observations: 0,
             };
             let output = self.drive(&input, ctx, &mut run).await;
             // Runtime-owned failures/cancellation keep their full typed evidence.

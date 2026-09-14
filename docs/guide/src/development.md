@@ -68,3 +68,5 @@ JW-05-c 在既有可选 context 组件内增加 ContextBuilder / ContextTokenCou
 JW-05-d 在 context 中增加工具选择、受控结果视图和有界 MemoryContentStore。jingwei-action 的可选 context feature 接入 ContextualActionStep；facade 同时开启 actions/context 时自动连接。仅增加对既有本地 context crate 的可选依赖，不新增第三方包，单独 actions 仍独立。见[工具视图](tool-views.md)。
 
 JW-06-a 增加默认关闭的 jingwei-reference-agent，facade 通过 reference-agent feature 导出。组合现有 Agent、上下文和动作接口，不修改 core runtime 或添加第三方依赖。模型调用自动计步，报告是 body 观察，取消/预算停止仍以 canonical 终态为准。见[有限参考 Agent](reference-agent.md)。
+
+JW-06-b 增加宿主完成证据检查、连续相同动作/反馈/状态检测与有限轮询配置；拒绝完成立即停止，仍复用原 Task 预算。
