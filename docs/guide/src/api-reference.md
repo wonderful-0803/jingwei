@@ -23,6 +23,7 @@ cargo doc --workspace --all-features --no-deps --locked
 | 共享账本、检查点与宿主增额 | `jingwei::budget` | [持久预算](durable-budget.md)、[审计增额](budget-grants.md)、[候选恢复](budget-recovery.md) |
 | 工具、会话与规范事件 | `jingwei::tool`、`jingwei::session`、`jingwei::event` | [模型调度](model-scheduling.md)、[运行报告](task-budget.md) |
 | 确定性对话投影 | `jingwei::context`，需启用 `context` feature | [对话投影](conversation-projection.md) |
+| 上下文计数、预算与裁剪 | `jingwei::context` 的 ContextBuilder / ContextTokenCounter | [上下文预算](context-budget.md) |
 | 本地文件检查点适配器 | 单独依赖 `jingwei-budget-file` | [文件检查点](file-checkpoint-store.md) |
 
 默认 façade 不启用可选 action/context 组件，也不包含文件检查点适配器。只引入应用实际需要的组件，不把指南目录或验证工程加入 Cargo 依赖。

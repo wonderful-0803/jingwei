@@ -10,12 +10,16 @@
 #![doc = include_str!("../../../docs/guide/src/budget-recovery.md")]
 #![doc = include_str!("../../../docs/guide/src/assistant-messages.md")]
 #![doc = include_str!("../../../docs/guide/src/conversation-projection.md")]
+#![doc = include_str!("../../../docs/guide/src/context-budget.md")]
 
 #[cfg(test)]
 mod actions;
 
 #[cfg(test)]
 mod projection;
+
+#[cfg(test)]
+mod context_builder;
 
 #[cfg(test)]
 mod budget;

@@ -62,3 +62,5 @@ JW-04-d2-c3 修复 JSONL 直接精确重试：即使事件字节已可见，也�
 JW-05-a 增加 [AssistantMessage](assistant-messages.md) V1：canonical AgentRuntime 将完整 final_text 写入 Session，保留 delta 为过程记录。自定义事件消费者需更新穷尽匹配；DriveFailure 新增 AssistantMessage，SessionRuntimeError 新增 InvalidMessageSettlement，错误中保留原始尝试或结算窗口。旧日志不回填，无新依赖。
 
 JW-05-b 增加可选 jingwei-context（facade 的 context feature 默认关闭），提供[确定性对话投影](conversation-projection.md)。仅依赖现有 core/session 契约和 serde/serde_json/thiserror，不新增第三方依赖或 IO runtime；输入必须是完整物理日志，旧回复缺失需显式策略。
+
+JW-05-c 在既有可选 context 组件内增加 ContextBuilder / ContextTokenCounter、硬/软上下文预算与可序列化构建报告。复用 core 的 TokenBudgetMode/TokenBoundEvidence，不增加依赖。硬模式需要宿主提供目标模型的可信输入计数与可执行输出上界，内置估算器仅支持软预算。见[上下文预算](context-budget.md)。

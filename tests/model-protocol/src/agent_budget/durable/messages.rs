@@ -35,6 +35,36 @@ async fn final_only_streamed_empty_and_waiting_outputs_have_one_complete_message
             projection.messages().last(),
             Some(&ModelMessage::assistant(report.final_text()))
         );
+        let target = jingwei::context::ContextTarget {
+            model: "test-host".into(),
+            template_revision: "v1".into(),
+        };
+        let next = [ModelMessage::user("follow-up")];
+        let built = jingwei::context::ContextBuilder::build(
+            &jingwei::context::CanonicalContextBuilder,
+            jingwei::context::ContextBuildInput {
+                history: &projection,
+                system: &[],
+                current: &next,
+                constraint: &jingwei::llm::GenerationConstraint::Text,
+                pinned_turns: &[],
+                state_version: Some("real-session"),
+                target: &target,
+                budget: jingwei::context::ContextBudget {
+                    window_tokens: 4096,
+                    output_reserve: 256,
+                    output_evidence: jingwei::context::TokenBoundEvidence::Estimate,
+                    safety_margin: 64,
+                    mode: jingwei::context::TokenBudgetMode::Soft,
+                },
+                limits: Default::default(),
+            },
+            &jingwei::context::ByteHeuristicCounter::default(),
+        )
+        .unwrap();
+        assert_eq!(built.request.messages.last(), next.last());
+        assert_eq!(built.report.source_tail, projection.source_tail);
+        assert!(built.report.turns.iter().all(|turn| turn.retained));
         if command == "step" {
             assert!(report.events().iter().any(|e| matches!(&e.kind, SessionEventKind::AssistantDelta { text } if text == "step confirmed")));
             assert_ne!(text, "step confirmed");

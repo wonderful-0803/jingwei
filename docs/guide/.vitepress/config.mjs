@@ -58,6 +58,7 @@ export default defineConfig({
           { text: '预算候选恢复', link: '/budget-recovery' },
           { text: '完整 assistant 回复', link: '/assistant-messages' },
           { text: '确定性对话投影', link: '/conversation-projection' },
+          { text: '上下文预算与消息选择', link: '/context-budget' },
         ],
       },
       {

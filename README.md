@@ -223,4 +223,4 @@ Jingwei is dual-licensed under either of:
 
 at your option.
 
-JW-05-a 已接入[完整 assistant 回复](docs/guide/src/assistant-messages.md)的规范持久化；JW-05-b 提供可选的[确定性对话投影](docs/guide/src/conversation-projection.md)，上下文预算按后续批次推进。
+JW-05-a 已接入[完整 assistant 回复](docs/guide/src/assistant-messages.md)的规范持久化；JW-05-b 提供可选的[确定性对话投影](docs/guide/src/conversation-projection.md)，JW-05-c 增加[上下文预算与消息选择](docs/guide/src/context-budget.md)，支持计数器替换、完整回合保护和构建报告。

@@ -1,5 +1,8 @@
 //! Pure, deterministic projections of a complete physical Session snapshot.
-//! No IO, model calls, log mutation, tool authorization or token budget is implicit.
+//! No IO, model calls, log mutation or tool authorization is implicit.
+
+mod builder;
+pub use builder::*;
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};

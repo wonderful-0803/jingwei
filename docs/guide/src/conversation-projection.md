@@ -53,4 +53,4 @@ ConversationProjection 包含算法版本、实际配置、输入事件数、尾
 
 默认上限为 100,000 个事件、16 MiB 规范序列化输入和 50,000 条输出消息。零上限无效，超限返回错误；不会静默裁掉消息或半个工具组。输入字节统计覆盖审计元数据，但不是模型 token 计数，也不是整个进程的内存上限。
 
-本批提供投影基础。模型 token 计数、system 与 schema 开销、输出预留、上下文选择和压缩仍待后续实现。完整消息的写入边界见[完整 assistant 回复](assistant-messages.md)。
+投影之后可使用[上下文预算与消息选择](context-budget.md)，计入 system、schema、模板和输出预留，按完整回合选择历史。受控结果精简与工具视图仍在后续批次。完整消息的写入边界见[完整 assistant 回复](assistant-messages.md)。
