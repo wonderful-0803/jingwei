@@ -1,0 +1,35 @@
+    Checking jingwei-core v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/core)
+    Checking jingwei-session v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/session)
+    Checking jingwei-budget v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/budget)
+    Checking jingwei-context v0.1.0 (/home/dd/luxiproject/jingwei/crates/context/context)
+    Checking jingwei-tool v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/tool)
+    Checking jingwei-llm v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/llm)
+    Checking jingwei-task v0.1.0 (/home/dd/luxiproject/jingwei/crates/task/state)
+    Checking jingwei-budget-file v0.1.0 (/home/dd/luxiproject/jingwei/crates/budget/file)
+    Checking jingwei-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/agent)
+    Checking jingwei-action v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/action)
+    Checking jingwei-plugin v0.1.0 (/home/dd/luxiproject/jingwei/crates/plugin/plugin)
+error: this `if` statement can be collapsed
+   --> crates/task/state/src/lib.rs:243:9
+    |
+243 | /         if let TaskPhase::WaitingForInput { question } = &self.phase {
+244 | |             if question.trim().is_empty() || question.len() > 64 * 1024 {
+245 | |                 return Err(TaskStateError::Invalid("question"));
+246 | |             }
+247 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+243 ~         if let TaskPhase::WaitingForInput { question } = &self.phase
+244 ~             && (question.trim().is_empty() || question.len() > 64 * 1024) {
+245 |                 return Err(TaskStateError::Invalid("question"));
+246 ~             }
+    |
+
+error: could not compile `jingwei-task` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `jingwei-task` (lib test) due to 1 previous error

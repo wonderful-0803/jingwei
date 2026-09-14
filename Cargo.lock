@@ -705,6 +705,7 @@ dependencies = [
  "jingwei-reference-agent",
  "jingwei-runtime",
  "jingwei-session",
+ "jingwei-task",
  "jingwei-tool",
 ]
 
@@ -954,6 +955,17 @@ dependencies = [
  "tokio",
  "tokio-util",
  "uuid",
+]
+
+[[package]]
+name = "jingwei-task"
+version = "0.1.0"
+dependencies = [
+ "jingwei-budget",
+ "jingwei-core",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

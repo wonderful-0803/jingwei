@@ -133,6 +133,18 @@ impl BudgetCheckpoint {
         }
         .validate()
     }
+    /// True for an execution claim, frozen image, open run or pending reservations.
+    /// False does not establish freshness, permissions or authority to resume.
+    pub fn requires_recovery(&self) -> bool {
+        !self.is_quiescent()
+    }
+
+    /// Verify an independently confirmed full Session log without acquiring
+    /// execution ownership or establishing storage freshness.
+    pub fn verify_history(&self, history: &[SessionEvent]) -> Result<(), BudgetExecutionError> {
+        super::execution::verify_checkpoint_history(self, history)
+    }
+
     pub fn execution_id(&self) -> Option<&BudgetExecutionId> {
         self.execution_id.as_ref()
     }

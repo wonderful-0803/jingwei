@@ -5,6 +5,7 @@
 - [模型调度与超时](model-scheduling.md)
 - [单步动作执行](action-step.md)
 - [任务预算账本](task-budget.md)
+- [任务状态契约](task-state.md)
 - [预算快照与恢复原语](budget-checkpoints.md)
 - [文件检查点存储](file-checkpoint-store.md)
 - [持久预算运行与恢复边界](durable-budget.md)
