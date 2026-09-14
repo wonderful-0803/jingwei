@@ -1,0 +1,5 @@
+    Checking jingwei-task v0.1.0 (/home/dd/luxiproject/jingwei/crates/task/state)
+    Checking jingwei-task-file v0.1.0 (/home/dd/luxiproject/jingwei/crates/task/file)
+    Checking jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+    Checking jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.57s

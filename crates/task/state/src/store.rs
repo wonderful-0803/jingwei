@@ -8,6 +8,12 @@ pub enum TaskWriteOutcome {
     Applied,
     AlreadyPresent,
 }
+/// Certainty of this attempt, not proof about a previous unacknowledged write.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskCommitCertainty {
+    DefinitelyNotCommitted,
+    Indeterminate,
+}
 #[derive(Debug, thiserror::Error)]
 pub enum TaskStoreError {
     #[error(transparent)]
@@ -18,6 +24,19 @@ pub enum TaskStoreError {
     Capacity,
     #[error("task store lock poisoned")]
     Poisoned,
+    #[error("task store busy")]
+    Busy,
+    #[error("task store closed")]
+    Closed,
+    #[error("task store {resource} exceeds {limit}")]
+    LimitExceeded { resource: &'static str, limit: u64 },
+    #[error("corrupt task state record {record}: {message}")]
+    Corrupt { record: u64, message: String },
+    #[error("task storage failure ({certainty:?}): {message}")]
+    Storage {
+        certainty: TaskCommitCertainty,
+        message: String,
+    },
 }
 /// Replaceable host store; zero expected revision means absent. Implementations
 /// must atomically compare and replace, validate monotonicity, and never silently

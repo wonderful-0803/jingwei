@@ -1,0 +1,800 @@
+//! Real local-file and child-process adapter verification; never published.
+
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use jingwei::budget::*;
+use jingwei::id::{SessionId, TaskId};
+use jingwei::task::*;
+use jingwei_task_file::{FileTaskStateConfig, FileTaskStateStore};
+use serde_json::{Value, json};
+
+struct Clock;
+impl BudgetClock for Clock {
+    fn now(&self) -> Duration {
+        Duration::ZERO
+    }
+}
+
+fn identity() -> TaskIdentity {
+    TaskIdentity {
+        task_id: TaskId::from("file-task"),
+        session_id: SessionId::from("file-session"),
+        agent_key: "file-agent".into(),
+    }
+}
+
+pub(crate) fn image(value: u64) -> TaskSnapshot {
+    let task = TaskBudget::new(
+        identity(),
+        BudgetLimits::default(),
+        BudgetLimits::default(),
+        TokenBudgetMode::Hard,
+        Arc::new(Clock),
+    )
+    .unwrap();
+    let budget = task.seal_checkpoint(None).unwrap();
+    TaskSnapshot::capture(
+        0,
+        TaskCompatibility {
+            agent_revision: "file-agent-v1".into(),
+            policy_revision: "policy-v1".into(),
+            tool_revisions: Default::default(),
+            payload_schemas: std::collections::BTreeMap::from([("app".into(), 1)]),
+        },
+        std::collections::BTreeMap::from([("app".into(), json!({"value":value}))]),
+        &budget,
+        &[],
+    )
+    .unwrap()
+}
+
+pub(crate) fn successor(checkpoint: TaskSnapshot) -> TaskSnapshot {
+    let mut wire = serde_json::to_value(&checkpoint).unwrap();
+    wire["revision"] = json!(checkpoint.revision() + 1);
+    wire["payloads"]["app"]["value"] = json!(2);
+    TaskSnapshot::from_json(&serde_json::to_vec(&wire).unwrap()).unwrap()
+}
+
+fn record(checkpoint: &TaskSnapshot) -> Value {
+    json!({"version":1, "expected_revision":checkpoint.revision()-1, "checkpoint":checkpoint})
+}
+
+fn line(record: &Value) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec(record).unwrap();
+    bytes.push(b'\n');
+    bytes
+}
+
+struct Temp(PathBuf);
+impl Temp {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "jingwei-file-task-{}-{}",
+            std::process::id(),
+            TaskId::new().as_str()
+        ));
+        fs::create_dir(&path).unwrap();
+        File::create_new(path.join("task.jsonl"))
+            .unwrap()
+            .sync_all()
+            .unwrap();
+        Self(path)
+    }
+    fn path(&self) -> PathBuf {
+        self.0.join("task.jsonl")
+    }
+    fn store(&self) -> FileTaskStateStore {
+        FileTaskStateStore::open(self.path(), FileTaskStateConfig::default()).unwrap()
+    }
+}
+impl Drop for Temp {
+    fn drop(&mut self) {
+        for name in ["task.jsonl", "ready"] {
+            let _ = fs::remove_file(self.0.join(name));
+        }
+        let _ = fs::remove_dir(&self.0);
+    }
+}
+
+#[tokio::test]
+async fn commit_load_reopen_and_exact_retry_preserve_bytes() {
+    let temp = Temp::new();
+    let store = temp.store();
+    let checkpoint = image(1);
+    assert!(store.load(&identity()).await.unwrap().is_none());
+    assert_eq!(
+        store.compare_exchange(0, &checkpoint).await.unwrap(),
+        TaskWriteOutcome::Applied
+    );
+    let bytes = fs::read(temp.path()).unwrap();
+    assert_eq!(
+        store.compare_exchange(0, &checkpoint).await.unwrap(),
+        TaskWriteOutcome::AlreadyPresent
+    );
+    assert_eq!(fs::read(temp.path()).unwrap(), bytes);
+    store.close().await;
+    let reopened = temp.store();
+    assert_eq!(
+        reopened.load(&identity()).await.unwrap(),
+        Some(checkpoint.clone())
+    );
+    let next = successor(checkpoint.clone());
+    assert_eq!(
+        reopened.compare_exchange(1, &next).await.unwrap(),
+        TaskWriteOutcome::Applied
+    );
+    assert_eq!(reopened.load(&identity()).await.unwrap(), Some(next));
+    assert!(matches!(
+        reopened.compare_exchange(0, &checkpoint).await,
+        Err(TaskStoreError::Conflict {
+            expected: 0,
+            actual: 2
+        })
+    ));
+}
+
+#[tokio::test]
+async fn stale_competing_and_wrong_identity_never_mutate_log() {
+    let temp = Temp::new();
+    let store = temp.store();
+    store.compare_exchange(0, &image(1)).await.unwrap();
+    let bytes = fs::read(temp.path()).unwrap();
+    assert!(matches!(
+        store.compare_exchange(0, &image(2)).await,
+        Err(TaskStoreError::Conflict {
+            expected: 0,
+            actual: 1
+        })
+    ));
+    let mut wrong = identity();
+    wrong.agent_key = "another-agent".into();
+    assert!(matches!(
+        store.load(&wrong).await,
+        Err(TaskStoreError::State(TaskStateError::IdentityMismatch))
+    ));
+    let mut wire = serde_json::to_value(image(1)).unwrap();
+    wire["identity"]["agent_key"] = json!("another-agent");
+    let wrong = serde_json::from_value(wire).unwrap();
+    assert!(matches!(
+        store.compare_exchange(0, &wrong).await,
+        Err(TaskStoreError::State(TaskStateError::IdentityMismatch))
+    ));
+    assert_eq!(fs::read(temp.path()).unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn invalid_successor_is_rejected_before_writing() {
+    let temp = Temp::new();
+    let store = temp.store();
+    assert!(matches!(
+        store.compare_exchange(1, &image(1)).await,
+        Err(TaskStoreError::State(
+            TaskStateError::RevisionMismatch { .. }
+        ))
+    ));
+    assert!(fs::read(temp.path()).unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn complete_unacknowledged_record_is_confirmed_without_duplicate_append() {
+    let temp = Temp::new();
+    let checkpoint = image(1);
+    // A complete write with no success receipt. This is not a simulated fsync failure.
+    let bytes = line(&record(&checkpoint));
+    fs::write(temp.path(), &bytes).unwrap();
+    let store = temp.store();
+    assert_eq!(
+        store.load(&identity()).await.unwrap(),
+        Some(checkpoint.clone())
+    );
+    assert_eq!(
+        store.compare_exchange(0, &checkpoint).await.unwrap(),
+        TaskWriteOutcome::AlreadyPresent
+    );
+    assert_eq!(fs::read(temp.path()).unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn corrupt_and_torn_logs_fail_closed_without_repair() {
+    let temp = Temp::new();
+    let first = record(&image(1));
+    let second = record(&successor(image(1)));
+    let mut cases = vec![
+        b"{".to_vec(),
+        b"\n".to_vec(),
+        serde_json::to_vec(&first).unwrap(),
+    ];
+    for version in [json!(2), json!("1"), json!(null)] {
+        let mut wrong = first.clone();
+        wrong["version"] = version;
+        cases.push(line(&wrong));
+    }
+    let mut missing = first.clone();
+    missing.as_object_mut().unwrap().remove("version");
+    cases.push(line(&missing));
+    let mut extra = first.clone();
+    extra["ignored"] = json!(true);
+    cases.push(line(&extra));
+    let mut wrong = first.clone();
+    wrong["checkpoint"]["version"] = json!(5);
+    cases.push(line(&wrong));
+    let mut wrong = first.clone();
+    wrong["checkpoint"]["budget"]["charged"]["input_tokens"] = json!(9);
+    cases.push(line(&wrong));
+    cases.push(line(&second)); // Must start at revision 1.
+    cases.push([line(&first), line(&first)].concat());
+    cases.push([line(&first), b"{\"version\":1".to_vec()].concat());
+    cases.push([line(&first), b"\n".to_vec()].concat());
+    let mut changed = second.clone();
+    changed["checkpoint"]["identity"]["agent_key"] = json!("other");
+    cases.push([line(&first), line(&changed)].concat());
+    for bytes in cases {
+        fs::write(temp.path(), &bytes).unwrap();
+        let store = temp.store();
+        assert!(
+            matches!(
+                store.load(&identity()).await,
+                Err(TaskStoreError::Corrupt { .. })
+            ),
+            "{bytes:?}"
+        );
+        assert!(matches!(
+            store.compare_exchange(0, &image(1)).await,
+            Err(TaskStoreError::Corrupt { .. })
+        ));
+        assert_eq!(fs::read(temp.path()).unwrap(), bytes);
+    }
+}
+
+#[tokio::test]
+async fn byte_limits_cover_read_and_append_without_partial_writes() {
+    let temp = Temp::new();
+    let checkpoint = image(1);
+    let config = FileTaskStateConfig {
+        max_record_bytes: 8,
+        max_log_bytes: 64,
+        max_io_jobs: 1,
+    };
+    let store = FileTaskStateStore::open(temp.path(), config).unwrap();
+    assert!(matches!(
+        store.compare_exchange(0, &checkpoint).await,
+        Err(TaskStoreError::LimitExceeded {
+            resource: "record bytes",
+            ..
+        })
+    ));
+    assert!(fs::read(temp.path()).unwrap().is_empty());
+    temp.store().compare_exchange(0, &checkpoint).await.unwrap();
+    let bytes = fs::read(temp.path()).unwrap();
+    let size = bytes.len();
+    assert!(matches!(
+        store.load(&identity()).await,
+        Err(TaskStoreError::LimitExceeded {
+            resource: "log bytes",
+            ..
+        })
+    ));
+    let store = FileTaskStateStore::open(
+        temp.path(),
+        FileTaskStateConfig {
+            max_record_bytes: 8,
+            max_log_bytes: size,
+            max_io_jobs: 1,
+        },
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load(&identity()).await,
+        Err(TaskStoreError::LimitExceeded {
+            resource: "record bytes",
+            ..
+        })
+    ));
+    let store = FileTaskStateStore::open(
+        temp.path(),
+        FileTaskStateConfig {
+            max_record_bytes: size,
+            max_log_bytes: size,
+            max_io_jobs: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store.load(&identity()).await.unwrap(),
+        Some(checkpoint.clone())
+    );
+    assert!(matches!(
+        store.compare_exchange(1, &successor(checkpoint)).await,
+        Err(TaskStoreError::LimitExceeded {
+            resource: "log bytes",
+            ..
+        })
+    ));
+    assert_eq!(fs::read(temp.path()).unwrap(), bytes);
+}
+
+#[test]
+fn opening_never_creates_files_and_rejects_invalid_configuration() {
+    let temp = Temp::new();
+    let missing = temp.0.join("missing.jsonl");
+    assert!(FileTaskStateStore::open(&missing, FileTaskStateConfig::default()).is_err());
+    assert!(!missing.exists());
+    assert!(FileTaskStateStore::open(&temp.0, FileTaskStateConfig::default()).is_err());
+    for config in [
+        FileTaskStateConfig {
+            max_record_bytes: 0,
+            ..Default::default()
+        },
+        FileTaskStateConfig {
+            max_io_jobs: 0,
+            ..Default::default()
+        },
+        FileTaskStateConfig {
+            max_log_bytes: 1,
+            ..Default::default()
+        },
+        FileTaskStateConfig {
+            max_log_bytes: usize::MAX,
+            ..Default::default()
+        },
+    ] {
+        assert!(FileTaskStateStore::open(temp.path(), config).is_err());
+    }
+}
+
+#[tokio::test]
+async fn missing_file_after_open_is_error_not_absence() {
+    let temp = Temp::new();
+    let store = temp.store();
+    fs::remove_file(temp.path()).unwrap();
+    assert!(matches!(
+        store.load(&identity()).await,
+        Err(TaskStoreError::Storage {
+            certainty: TaskCommitCertainty::DefinitelyNotCommitted,
+            ..
+        })
+    ));
+    assert!(!temp.path().exists());
+}
+
+#[test]
+fn calls_outside_tokio_return_error_without_panicking() {
+    let temp = Temp::new();
+    let store = temp.store();
+    assert!(matches!(
+        futures::executor::block_on(store.load(&identity())),
+        Err(TaskStoreError::Storage {
+            certainty: TaskCommitCertainty::DefinitelyNotCommitted,
+            ..
+        })
+    ));
+    assert_eq!(store.status().in_flight, 0);
+}
+
+#[tokio::test]
+async fn exclusive_os_lock_returns_busy_and_never_writes() {
+    let temp = Temp::new();
+    let locked = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(temp.path())
+        .unwrap();
+    locked.try_lock().unwrap();
+    let store = temp.store();
+    assert!(matches!(
+        store.load(&identity()).await,
+        Err(TaskStoreError::Busy)
+    ));
+    assert!(matches!(
+        store.compare_exchange(0, &image(1)).await,
+        Err(TaskStoreError::Busy)
+    ));
+    // Make the release boundary explicit even while other tests spawn children.
+    // A concurrently inherited open file description can outlive this handle.
+    locked.unlock().unwrap();
+    drop(locked);
+    assert!(fs::read(temp.path()).unwrap().is_empty());
+    store.compare_exchange(0, &image(1)).await.unwrap();
+}
+
+#[tokio::test]
+async fn close_is_shared_by_clones_and_reopening_is_explicit() {
+    let temp = Temp::new();
+    let store = temp.store();
+    let clone = store.clone();
+    store.close().await;
+    clone.close().await;
+    assert!(!clone.status().accepting);
+    assert!(matches!(
+        clone.load(&identity()).await,
+        Err(TaskStoreError::Closed)
+    ));
+    assert!(matches!(
+        clone.compare_exchange(0, &image(1)).await,
+        Err(TaskStoreError::Closed)
+    ));
+    assert!(temp.store().load(&identity()).await.unwrap().is_none());
+}
+
+#[test]
+fn dropped_waiter_keeps_job_owned_bounded_and_drainable() {
+    let temp = Temp::new();
+    let store = FileTaskStateStore::open(
+        temp.path(),
+        FileTaskStateConfig {
+            max_io_jobs: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .unwrap();
+    let (release, blocked) = std::sync::mpsc::channel();
+    let (started, ready) = std::sync::mpsc::channel();
+    let blocker = runtime.spawn_blocking(move || {
+        started.send(()).unwrap();
+        blocked.recv_timeout(Duration::from_secs(10)).unwrap();
+    });
+    ready.recv_timeout(Duration::from_secs(10)).unwrap();
+    runtime.block_on(async {
+        let checkpoint = image(1);
+        let mut write = store.compare_exchange(0, &checkpoint);
+        assert!(futures::poll!(write.as_mut()).is_pending());
+        assert_eq!(store.status().in_flight, 1);
+        assert!(matches!(
+            store.load(&identity()).await,
+            Err(TaskStoreError::Busy)
+        ));
+        drop(write);
+        let mut close = Box::pin(store.close());
+        assert!(futures::poll!(close.as_mut()).is_pending());
+        drop(close);
+        assert!(!store.status().accepting);
+        assert_eq!(store.status().in_flight, 1);
+        assert!(fs::read(temp.path()).unwrap().is_empty());
+        release.send(()).unwrap();
+        blocker.await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), store.close())
+            .await
+            .unwrap();
+        assert_eq!(store.status().in_flight, 0);
+        assert_eq!(
+            temp.store().load(&identity()).await.unwrap(),
+            Some(checkpoint)
+        );
+    });
+}
+
+#[tokio::test]
+async fn unpolled_request_has_no_ownership_and_cannot_bypass_close() {
+    let temp = Temp::new();
+    let store = temp.store();
+    let checkpoint = image(1);
+    let write = store.compare_exchange(0, &checkpoint);
+    assert_eq!(store.status().in_flight, 0);
+    store.close().await;
+    assert!(matches!(write.await, Err(TaskStoreError::Closed)));
+    assert!(fs::read(temp.path()).unwrap().is_empty());
+}
+
+struct Worker(Option<Child>);
+impl Worker {
+    fn spawn(temp: &Temp, mode: &str, steps: u64) -> Self {
+        Self(Some(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "task_file::file_task_child_worker",
+                    "--nocapture",
+                ])
+                .env("JINGWEI_FILE_TASK_TEST_PATH", temp.path())
+                .env("JINGWEI_FILE_TASK_TEST_MODE", mode)
+                .env("JINGWEI_FILE_TASK_TEST_STEPS", steps.to_string())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        ))
+    }
+    fn finish(mut self) -> String {
+        let start = Instant::now();
+        while self.0.as_mut().unwrap().try_wait().unwrap().is_none() {
+            assert!(start.elapsed() < Duration::from_secs(30), "child timed out");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = self.0.take().unwrap().wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+}
+impl Drop for Worker {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+#[test]
+fn file_task_child_worker() {
+    let Some(path) = std::env::var_os("JINGWEI_FILE_TASK_TEST_PATH") else {
+        return;
+    };
+    let path = Path::new(&path);
+    let mode = std::env::var("JINGWEI_FILE_TASK_TEST_MODE").unwrap();
+    if mode == "hold" {
+        let locked = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        locked.try_lock().unwrap();
+        let mut ready = File::create_new(path.with_file_name("ready")).unwrap();
+        ready.write_all(b"locked").unwrap();
+        ready.sync_all().unwrap();
+        std::thread::sleep(Duration::from_secs(30));
+        drop(locked);
+        return;
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let store = FileTaskStateStore::open(path, FileTaskStateConfig::default()).unwrap();
+        if mode == "load" {
+            let checkpoint = store.load(&identity()).await.unwrap().unwrap();
+            let expected_steps: u64 = std::env::var("JINGWEI_FILE_TASK_TEST_STEPS")
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert_eq!(checkpoint.payloads()["app"]["value"], json!(expected_steps));
+            assert_eq!(checkpoint.phase(), &TaskPhase::Created);
+            println!("RESULT=loaded");
+        } else if mode == "busy" {
+            assert!(matches!(
+                store.compare_exchange(0, &image(1)).await,
+                Err(TaskStoreError::Busy)
+            ));
+            println!("RESULT=busy");
+        } else {
+            let steps = std::env::var("JINGWEI_FILE_TASK_TEST_STEPS")
+                .unwrap()
+                .parse()
+                .unwrap();
+            let checkpoint = image(steps);
+            let start = Instant::now();
+            loop {
+                match store.compare_exchange(0, &checkpoint).await {
+                    Ok(TaskWriteOutcome::Applied) => {
+                        println!("RESULT=committed");
+                        break;
+                    }
+                    Err(TaskStoreError::Conflict {
+                        expected: 0,
+                        actual: 1,
+                    }) => {
+                        println!("RESULT=conflict");
+                        break;
+                    }
+                    Err(TaskStoreError::Busy) => {
+                        assert!(start.elapsed() < Duration::from_secs(10));
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    other => panic!("unexpected child CAS result: {other:?}"),
+                }
+            }
+        }
+        store.close().await;
+    });
+}
+
+#[test]
+fn distinct_process_writers_have_one_cas_winner_and_new_process_loads_payload() {
+    let temp = Temp::new();
+    let left = Worker::spawn(&temp, "cas", 1);
+    let right = Worker::spawn(&temp, "cas", 2);
+    let outputs = [left.finish(), right.finish()];
+    assert_eq!(
+        outputs
+            .iter()
+            .filter(|s| s.contains("RESULT=committed"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outputs
+            .iter()
+            .filter(|s| s.contains("RESULT=conflict"))
+            .count(),
+        1
+    );
+    let steps = if outputs[0].contains("RESULT=committed") {
+        1
+    } else {
+        2
+    };
+    assert!(
+        Worker::spawn(&temp, "load", steps)
+            .finish()
+            .contains("RESULT=loaded")
+    );
+    assert_eq!(
+        fs::read(temp.path())
+            .unwrap()
+            .iter()
+            .filter(|b| **b == b'\n')
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn parent_os_lock_is_visible_in_child_process() {
+    let temp = Temp::new();
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(temp.path())
+        .unwrap();
+    file.try_lock().unwrap();
+    assert!(
+        Worker::spawn(&temp, "busy", 1)
+            .finish()
+            .contains("RESULT=busy")
+    );
+    drop(file);
+    assert!(fs::read(temp.path()).unwrap().is_empty());
+}
+
+#[test]
+fn process_death_releases_os_lock_without_a_stale_lockfile() {
+    let temp = Temp::new();
+    let holder = Worker::spawn(&temp, "hold", 1);
+    let start = Instant::now();
+    while !temp.0.join("ready").exists() {
+        assert!(start.elapsed() < Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        Worker::spawn(&temp, "busy", 1)
+            .finish()
+            .contains("RESULT=busy")
+    );
+    drop(holder); // Kill only this test's own child and wait for process exit.
+    assert!(
+        Worker::spawn(&temp, "cas", 1)
+            .finish()
+            .contains("RESULT=committed")
+    );
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub(crate) async fn fault_operation(root: &Path) {
+    let path = root.join("task.jsonl");
+    File::create_new(&path).unwrap();
+    let store = FileTaskStateStore::open(&path, FileTaskStateConfig::default()).unwrap();
+    let base = image(1);
+    let next = successor(base.clone());
+    store.compare_exchange(0, &base).await.unwrap();
+    let before = fs::read(&path).unwrap();
+    fs::write(root.join("arm"), "armed").unwrap();
+    let uncertain = |result: Result<TaskWriteOutcome, TaskStoreError>| {
+        assert!(
+            matches!(
+                result,
+                Err(TaskStoreError::Storage {
+                    certainty: TaskCommitCertainty::Indeterminate,
+                    ..
+                })
+            ),
+            "{result:?}"
+        );
+    };
+    uncertain(store.compare_exchange(1, &next).await);
+    let mode = std::env::var("JW_FAULT_MODE").unwrap();
+    if mode.starts_with("sync-") {
+        uncertain(store.compare_exchange(1, &next).await);
+        assert!(matches!(
+            store.load(&identity()).await,
+            Err(TaskStoreError::Storage {
+                certainty: TaskCommitCertainty::Indeterminate,
+                ..
+            })
+        ));
+    }
+    fs::remove_file(root.join("arm")).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    if mode == "write-partial" {
+        assert_eq!(bytes.len(), before.len() + 17);
+        assert!(matches!(
+            store.load(&identity()).await,
+            Err(TaskStoreError::Corrupt { .. })
+        ));
+        assert!(matches!(
+            store.compare_exchange(1, &next).await,
+            Err(TaskStoreError::Corrupt { .. })
+        ));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    } else {
+        assert_eq!(
+            store.load(&identity()).await.unwrap(),
+            Some(if mode == "write-zero" {
+                base
+            } else {
+                next.clone()
+            })
+        );
+        assert_eq!(
+            store.compare_exchange(1, &next).await.unwrap(),
+            if mode == "write-zero" {
+                TaskWriteOutcome::Applied
+            } else {
+                TaskWriteOutcome::AlreadyPresent
+            }
+        );
+        assert_eq!(store.load(&identity()).await.unwrap(), Some(next));
+        if mode.starts_with("sync-") {
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+    }
+    store.close().await;
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub(crate) async fn restart_operation(root: &Path) {
+    let path = root.join("task.jsonl");
+    let before = fs::read(&path).unwrap();
+    let store = FileTaskStateStore::open(&path, FileTaskStateConfig::default()).unwrap();
+    let next = successor(image(1));
+    assert_eq!(store.load(&identity()).await.unwrap(), Some(next.clone()));
+    assert_eq!(
+        store.compare_exchange(1, &next).await.unwrap(),
+        TaskWriteOutcome::AlreadyPresent
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
+    store.close().await;
+}
+
+#[tokio::test]
+async fn incompatible_updates_and_revision_overflow_preserve_committed_state() {
+    let temp = Temp::new();
+    let store = temp.store();
+    let first = image(1);
+    store.compare_exchange(0, &first).await.unwrap();
+    let bytes = fs::read(temp.path()).unwrap();
+    let mut wire = serde_json::to_value(successor(first)).unwrap();
+    wire["compatibility"]["policy_revision"] = json!("changed-policy");
+    let changed = TaskSnapshot::from_json(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert!(matches!(
+        store.compare_exchange(1, &changed).await,
+        Err(TaskStoreError::State(TaskStateError::Incompatible))
+    ));
+    assert!(matches!(
+        store.compare_exchange(u64::MAX, &image(1)).await,
+        Err(TaskStoreError::State(TaskStateError::RevisionExhausted))
+    ));
+    assert_eq!(fs::read(temp.path()).unwrap(), bytes);
+    // A forged complete historical record must undergo the same transition checks.
+    let forged = [bytes, line(&record(&changed))].concat();
+    fs::write(temp.path(), &forged).unwrap();
+    assert!(matches!(
+        store.load(&identity()).await,
+        Err(TaskStoreError::Corrupt { record: 2, .. })
+    ));
+    assert_eq!(fs::read(temp.path()).unwrap(), forged);
+}

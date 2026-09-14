@@ -448,3 +448,30 @@ async fn failed_and_cancelled_turns_stay_stopped_and_frozen_images_are_not_safe(
         fixture.harness.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn reference_agent_evidence_survives_file_store_reopen() {
+    use jingwei_task_file::{FileTaskStateConfig, FileTaskStateStore};
+    for waiting in [false, true] {
+        let (budget, history) = recorded(waiting).await;
+        let snapshot =
+            TaskSnapshot::capture(0, compatibility(), payloads(), &budget, &history).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("jingwei-reference-state-{}.jsonl", TaskId::new()));
+        let file = std::fs::File::create_new(&path).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+        let store = FileTaskStateStore::open(&path, FileTaskStateConfig::default()).unwrap();
+        store.compare_exchange(0, &snapshot).await.unwrap();
+        store.close().await;
+        drop(store);
+        let store = FileTaskStateStore::open(&path, FileTaskStateConfig::default()).unwrap();
+        let restored = store.load(budget.identity()).await.unwrap().unwrap();
+        assert_eq!(restored, snapshot);
+        restored
+            .verify_evidence(budget.identity(), 1, &compatibility(), &budget, &history)
+            .unwrap();
+        store.close().await;
+        std::fs::remove_file(path).unwrap();
+    }
+}

@@ -969,6 +969,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jingwei-task-file"
+version = "0.1.0"
+dependencies = [
+ "jingwei-task",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "jingwei-tool"
 version = "0.1.0"
 dependencies = [

@@ -2,7 +2,7 @@
 
 启用 facade 的 `task-state` feature 后，通过 `jingwei::task` 使用 TaskSnapshot、日志评估和 TaskStateStore；也可单独依赖 jingwei-task。它不依赖参考 Agent，不自动安装到 Harness 或 StandardCoreBundle。
 
-当前交付的是状态契约与有界内存存储。本地持久状态存储、步骤中间检查点和跨重启续跑仍在后续阶段；现有[持久预算](durable-budget.md)的独占执行 lease 不能被任务快照替代。
+当前提供状态契约、有界内存存储和可选本地文件存储。步骤中间检查点和跨重启续跑仍在后续阶段；现有[持久预算](durable-budget.md)的独占执行 lease 不能被任务快照替代。
 
 ## 快照记录什么
 
@@ -75,3 +75,48 @@ MemoryTaskStateStore 的锁只保护本进程内状态更新，不保护 Session
 ## 资源边界
 
 单份快照最多 512 KiB，最多 4096 个决策 ID、128 个 payload 命名空间、1024 个工具修订声明。payload 深度最多 64、节点数最多 65,536；完整日志评估最多 100,000 个事件。身份及修订文本最多 4096 字节，待答问题最多 64 KiB。内存存储显式指定 1–65,536 个任务槽；总容量还受槽数乘以单份快照上限约束。超限明确失败，不截断证据。
+
+## 本地持久化任务状态
+
+JW-07-b 新增独立的 `jingwei-task-file`，实现同一个 TaskStateStore 接口。它不会随默认 façade 或 task-state feature 自动引入；当前是未发布的仓库版本，宿主可显式使用指向 `crates/task/file` 的 path 依赖。
+
+宿主先为每个 Task/Session/Agent 绑定准备一个普通文件，并确认文件与目录项已按部署要求持久化。空的既有文件表示尚未提交任务状态；文件缺失是错误，适配器不会创建文件。文件路径由宿主管理，运行期间不能替换、截断、删除文件或绕过文件锁写入。它不支持不可信路径、外部篡改或不遵守文件锁的写者。
+
+```rust,no_run
+use std::path::Path;
+use jingwei::task::{TaskSnapshot, TaskStateStore, TaskStoreError, TaskWriteOutcome};
+use jingwei_task_file::{FileTaskStateConfig, FileTaskStateStore};
+
+// 在 Tokio runtime 内调用；snapshot 已由宿主核验日志、预算及当前兼容性。
+async fn save_to_file(
+    path: &Path,
+    expected_revision: u64,
+    snapshot: &TaskSnapshot,
+) -> Result<TaskWriteOutcome, TaskStoreError> {
+    let store = FileTaskStateStore::open(path, FileTaskStateConfig::default())?;
+    let result = store.compare_exchange(expected_revision, snapshot).await;
+    // 即使调用失败也排空本实例作业；排空不代表失败写入已成功。
+    store.close().await;
+    result
+}
+```
+
+每次读取或更新都在独占 OS 文件锁内完成，其他进程或实例竞争时返回 Busy。JSONL 记录包含存储格式版本、预期版本和完整快照；读取校验整条连续版本链及每次状态迁移。CAS 的原子性指协作写者间的版本比较与更新串行化，并不承诺掉电时文件追加不可撕裂。
+
+Applied 只在完整追加并同步文件后返回；对最新候选的完全相同重试，重新同步后返回 AlreadyPresent，不重复写入。旧候选或不同内容不会被当作精确重试。load 同样重新同步完整记录，以确认之前没有成功回执的写入；它只返回存储状态，使用前仍须独立 verify_evidence，不会自动恢复运行。
+
+| 结果 | 宿主应如何处理 |
+| --- | --- |
+| Conflict | 重新核对当前状态与业务更新，不盲目递增预期版本 |
+| Busy | 文件锁或本实例 IO 容量被占用，可稍后重试存储操作 |
+| Closed | 同实例所有 clone 已关闭，需要显式重新打开 |
+| Corrupt | 未结束的行、未知格式、非法快照或不连续/倒退状态链；停止并保留证据，不自动截断或重建 |
+| LimitExceeded | 单行或累计文件超限；不截断，当前无自动压缩/轮转 |
+| Storage / DefinitelyNotCommitted | 本次尝试在写入前失败，不能据此否定此前不确定写入 |
+| Storage / Indeterminate | 写入或同步未确认；保留原候选及预期版本，重新读取/精确重试核验，不重放工具 |
+
+默认单行（含换行）上限 1 MiB、日志上限 64 MiB、每实例最多 4 个已接受 IO 作业；快照本身仍受 512 KiB 限制。clone 共享准入计数，独立实例仅共享文件锁。构造时路径检查为同步操作，读写在 Tokio blocking pool 执行。首次 poll 才准入，丢弃已准入 future 不取消后台写入；status 可观察积压，close 停止所有 clone 准入并等待 worker 排空。应在销毁 Tokio runtime 前调用 close。
+
+本地文件系统必须支持排他锁与 sync_all；文件供应和硬件持久性由部署负责。本批在 Linux GNU 上验证跨进程竞争、零字节/部分写入、同步前后错误、完整写入后进程退出并由新进程确认；这些测试不等同于掉电模拟或跨平台验收。
+
+任务文件锁只保护任务状态文件，不覆盖规范日志、预算文件或 Agent 执行。完整恢复协调仍在 JW-07-c：任务状态写入成功不授予执行权限，也不沿用旧审批。

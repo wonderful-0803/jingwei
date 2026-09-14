@@ -2,7 +2,7 @@
 
 ## 当前源码快照
 
-workspace 目前由 21 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
+workspace 目前由 22 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
 
 Rust 开发版本固定为 1.96.0，最低支持声明同步为 1.96。此前的 1.85 声明与源码使用的语法不符；本轮基于真实构建结果收敛声明，未承诺更旧工具链。
 
@@ -76,3 +76,5 @@ JW-06-c 增加默认最多两次的结构化纠错，计入共享 Task 修正预
 JW-06-d 完成有限参考 Agent 的本地契约验收：五条公共路径、真实审批拒绝、同 runtime 的自定义 Agent 对照，以及正常/异常收尾证据。下一阶段进入 JW-07 完整 Task 状态与恢复。
 
 JW-07-a 增加可选 jingwei-task 与 task-state feature：版本化[任务状态契约](task-state.md)、只读日志评估、严格边界验证及内存 CAS 存储。仅依赖既有包，不新增第三方依赖；完整持久恢复尚未接入。
+
+JW-07-b 新增独立 jingwei-task-file：带 OS 排他锁的连续 JSONL 状态链、落盘确认、精确重试、有界后台 IO 与关闭排空。Linux GNU 故障夹具已覆盖任务状态适配器；步骤检查点与受控恢复协调继续在 JW-07-c 实施。见[任务状态本地持久化](task-state.md#本地持久化任务状态)。

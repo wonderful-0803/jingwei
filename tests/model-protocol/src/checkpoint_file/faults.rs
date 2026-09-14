@@ -46,7 +46,7 @@ fn library() -> &'static Path {
 
 fn run(adapter: &str, mode: &str) {
     let root = Harness::new();
-    let target = if adapter == "budget" {
+    let target = if adapter == "budget" || adapter == "task" {
         root.0.join("task.jsonl")
     } else {
         session_file_path(&root.0, &identity().session_id)
@@ -138,7 +138,7 @@ fn session_sync_errors_and_direct_retry_require_confirmation() {
 }
 #[test]
 fn complete_write_then_process_exit_requires_restart_confirmation() {
-    for adapter in ["budget", "session"] {
+    for adapter in ["budget", "session", "task"] {
         run(adapter, "crash-after-write");
     }
 }
@@ -193,6 +193,10 @@ fn fault_child() {
     let root = PathBuf::from(root);
     let mode = std::env::var("JW_FAULT_MODE").unwrap();
     tokio::runtime::Runtime::new().unwrap().block_on(async {
+        if std::env::var("JW_FAULT_ADAPTER").unwrap() == "task" {
+            crate::task_file::fault_operation(&root).await;
+            return;
+        }
         if std::env::var("JW_FAULT_ADAPTER").unwrap() == "budget" {
             File::create_new(root.join("task.jsonl")).unwrap();
             let store = store(&root);
@@ -287,6 +291,10 @@ fn restart_child() {
     };
     let root = PathBuf::from(root);
     tokio::runtime::Runtime::new().unwrap().block_on(async {
+        if std::env::var("JW_FAULT_ADAPTER").unwrap() == "task" {
+            crate::task_file::restart_operation(&root).await;
+            return;
+        }
         if std::env::var("JW_FAULT_ADAPTER").unwrap() == "budget" {
             let store = store(&root);
             let candidate = successor(image(1));
@@ -310,4 +318,17 @@ fn restart_child() {
             );
         }
     });
+}
+
+#[test]
+fn task_kernel_write_failures_preserve_or_freeze_the_log() {
+    for mode in ["write-zero", "write-partial"] {
+        run("task", mode);
+    }
+}
+#[test]
+fn task_sync_errors_never_acknowledge_a_visible_candidate() {
+    for mode in ["sync-before", "sync-after"] {
+        run("task", mode);
+    }
 }
