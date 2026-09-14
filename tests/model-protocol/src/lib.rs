@@ -11,6 +11,7 @@
 #![doc = include_str!("../../../docs/guide/src/assistant-messages.md")]
 #![doc = include_str!("../../../docs/guide/src/conversation-projection.md")]
 #![doc = include_str!("../../../docs/guide/src/context-budget.md")]
+#![doc = include_str!("../../../docs/guide/src/tool-views.md")]
 
 #[cfg(test)]
 mod actions;
@@ -20,6 +21,9 @@ mod projection;
 
 #[cfg(test)]
 mod context_builder;
+
+#[cfg(test)]
+mod context_views;
 
 #[cfg(test)]
 mod budget;

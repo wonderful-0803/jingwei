@@ -79,4 +79,4 @@ BuiltContext 包含请求和可序列化的 ContextBuildReport：算法/投影�
 
 报告是派生信息，由宿主按自己的存储策略保存，不自动写入 Session 或覆盖规范事实。报告中的 state_version 是宿主提供的关联标签，不证明任务状态已恢复。投影自身的省略原因与失败回合信息仍可从原始 ConversationProjection 读取。
 
-宿主可以替换 ContextBuilder 或 ContextTokenCounter，无需修改 AgentRuntime、SessionRuntime 或适配器。当前不会自动调用模型；后续工具可见性、受控结果精简和 ActionStep 接入按下一批推进。原始历史的构建方式见[确定性对话投影](conversation-projection.md)。
+宿主可以替换 ContextBuilder 或 ContextTokenCounter，无需修改 AgentRuntime、SessionRuntime 或适配器。ContextBuilder 本身不调用模型；显式的[工具视图与动作接入](tool-views.md)可在完整协议计数后推进一次动作。原始历史的构建方式见[确定性对话投影](conversation-projection.md)。

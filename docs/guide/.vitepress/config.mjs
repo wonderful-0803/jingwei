@@ -59,6 +59,7 @@ export default defineConfig({
           { text: '完整 assistant 回复', link: '/assistant-messages' },
           { text: '确定性对话投影', link: '/conversation-projection' },
           { text: '上下文预算与消息选择', link: '/context-budget' },
+          { text: '工具视图与动作接入', link: '/tool-views' },
         ],
       },
       {

@@ -711,6 +711,7 @@ dependencies = [
 name = "jingwei-action"
 version = "0.1.0"
 dependencies = [
+ "jingwei-context",
  "jingwei-core",
  "jingwei-llm",
  "jingwei-tool",

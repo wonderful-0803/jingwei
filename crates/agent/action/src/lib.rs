@@ -2,6 +2,11 @@
 //!
 //! This is a single-step component, not an autonomous loop, permission system,
 //! business-success verifier, or task recovery store.
+#[cfg(feature = "context")]
+mod context;
+#[cfg(feature = "context")]
+pub use context::*;
+
 mod protocol;
 mod step;
 mod validation;

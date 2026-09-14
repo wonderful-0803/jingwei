@@ -27,4 +27,4 @@ jingwei-tool = { workspace = true }
 
 [features]
 actions = ["dep:jingwei-action"]
-context = ["dep:jingwei-context"]
+context = ["dep:jingwei-context", "jingwei-action?/context"]

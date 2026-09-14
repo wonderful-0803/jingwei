@@ -13,7 +13,11 @@ exclude.workspace = true
 documentation = "https://docs.rs/jingwei-action"
 description = "Optional model action protocols and controlled single-step execution for Jingwei"
 
+[features]
+context = ["dep:jingwei-context"]
+
 [dependencies]
+jingwei-context = { workspace = true, optional = true }
 jingwei-core.workspace = true
 jingwei-llm.workspace = true
 jingwei-tool.workspace = true

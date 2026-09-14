@@ -1,6 +1,11 @@
 //! Pure, deterministic projections of a complete physical Session snapshot.
 //! No IO, model calls, log mutation or tool authorization is implicit.
 
+mod content;
+mod views;
+pub use content::*;
+pub use views::*;
+
 mod builder;
 pub use builder::*;
 

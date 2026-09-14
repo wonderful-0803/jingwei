@@ -109,3 +109,7 @@ JSON-only 数据在传输上使用 user role 只是兼容后端，并不代表�
 内部验证覆盖两种协议的工具→结果→最终回答、AskUser、custom Agent 组合、局部 $ref、不可见工具、非法参数、多动作、截断、取消、审批/guard、工具失败、超时以及四个规范记录屏障。测试只使用假模型、内存记录和现有 canonical runtimes；未连接真实模型。
 
 当前仍未提供动作流式展示、自动修正策略、官方有限循环、上下文裁剪、完成检查、持久待答状态和恢复。ActionStep 复用 canonical runtimes 的共享任务预算；不要把单步组合和预算停止当作完整参考 Agent 或恢复实现。
+
+## 与上下文组合
+
+同时启用 actions/context，可使用 ContextualActionStep 组合工具选择、完整协议计数和受控结果引用。该适配器保留 ToolRuntime 的执行校验，精简失败不重放工具，详见[工具视图与动作接入](tool-views.md)。

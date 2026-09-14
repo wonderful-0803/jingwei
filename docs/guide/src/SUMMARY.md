@@ -13,6 +13,7 @@
 - [完整 assistant 回复](assistant-messages.md)
 - [确定性对话投影](conversation-projection.md)
 - [上下文预算与消息选择](context-budget.md)
+- [工具视图与动作接入](tool-views.md)
 - [开发环境与兼容性](development.md)
 - [API 参考](api-reference.md)
 - [编写与发布指南](writing-guide.md)

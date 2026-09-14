@@ -1386,3 +1386,6 @@ fn json_protocol_rejects_external_schema_references_without_io() {
         assert!(JsonActionProtocol.request(input(), &tools).is_err());
     }
 }
+
+#[path = "context_actions.rs"]
+mod context_actions;

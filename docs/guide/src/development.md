@@ -64,3 +64,5 @@ JW-05-a 增加 [AssistantMessage](assistant-messages.md) V1：canonical AgentRun
 JW-05-b 增加可选 jingwei-context（facade 的 context feature 默认关闭），提供[确定性对话投影](conversation-projection.md)。仅依赖现有 core/session 契约和 serde/serde_json/thiserror，不新增第三方依赖或 IO runtime；输入必须是完整物理日志，旧回复缺失需显式策略。
 
 JW-05-c 在既有可选 context 组件内增加 ContextBuilder / ContextTokenCounter、硬/软上下文预算与可序列化构建报告。复用 core 的 TokenBudgetMode/TokenBoundEvidence，不增加依赖。硬模式需要宿主提供目标模型的可信输入计数与可执行输出上界，内置估算器仅支持软预算。见[上下文预算](context-budget.md)。
+
+JW-05-d 在 context 中增加工具选择、受控结果视图和有界 MemoryContentStore。jingwei-action 的可选 context feature 接入 ContextualActionStep；facade 同时开启 actions/context 时自动连接。仅增加对既有本地 context crate 的可选依赖，不新增第三方包，单独 actions 仍独立。见[工具视图](tool-views.md)。
