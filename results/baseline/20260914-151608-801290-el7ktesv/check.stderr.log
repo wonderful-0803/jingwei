@@ -1,0 +1,4 @@
+    Checking jingwei-action v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/action)
+    Checking jingwei-reference-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/reference)
+    Checking jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s

@@ -392,7 +392,10 @@ async fn ask_user_closes_turn_and_host_reuses_same_task_budget_on_reply() {
     let second = fixture
         .harness
         .start_turn_request(
-            AgentTurnRequest::new(session, "reference", "目录 A").with_budget(task, limits),
+            ReferenceWaiting::from_report(&first, task)
+                .unwrap()
+                .resume(first.turn_id(), "目录 A", limits)
+                .unwrap(),
         )
         .unwrap()
         .wait()
@@ -563,7 +566,7 @@ impl AgentContext for GatedContext<'_> {
         kind: jingwei::agent::AgentEventKind,
     ) -> AgentFuture<'_, Result<(), AgentError>> {
         if self.fail_report
-            && matches!(&kind,jingwei::agent::AgentEventKind::Custom{kind,..} if kind==REFERENCE_STEP_EVENT)
+            && matches!(&kind,jingwei::agent::AgentEventKind::Custom{kind,..} if kind==REFERENCE_STEP_EVENT || kind==REFERENCE_CORRECTION_EVENT)
         {
             Box::pin(async { Err(AgentError::Session(SessionRuntimeError::Stopped)) })
         } else {
@@ -932,3 +935,6 @@ async fn changed_arguments_reset_consecutive_repetition() {
         fixture.harness.shutdown().await.unwrap();
     }
 }
+
+#[path = "reference_correction.rs"]
+mod correction;

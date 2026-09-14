@@ -21,6 +21,10 @@ use jingwei_tool::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+mod correction;
+mod waiting;
+pub use correction::*;
+pub use waiting::*;
 mod checks;
 pub use checks::*;
 
@@ -53,6 +57,8 @@ impl ReferenceClock for SystemReferenceClock {
 #[derive(Clone, Debug)]
 pub struct ReferenceAgentConfig {
     pub max_steps: u32,
+    /// Per-turn ceiling, also charged to the shared Task correction budget.
+    pub max_corrections: u32,
     pub protocol: ContextActionProtocol,
     pub system: Vec<String>,
     pub pinned_turns: Vec<TurnId>,
@@ -71,6 +77,7 @@ impl ReferenceAgentConfig {
     pub fn new(target: ContextTarget, context_budget: ContextBudget) -> Self {
         Self {
             max_steps: 8,
+            max_corrections: 2,
             protocol: ContextActionProtocol::Native,
             system: vec![],
             pinned_turns: vec![],
@@ -100,6 +107,7 @@ pub enum ReferenceStop {
     BusinessVerified,
     CompletionRejected,
     NoProgress,
+    CorrectionLimit,
     WaitingForInput,
     StepLimit,
     ContextRejected,
@@ -151,6 +159,8 @@ pub struct ReferenceRunReport {
     pub completion: Option<CompletionDecision>,
     #[serde(default)]
     pub repeated_observations: u32,
+    #[serde(default)]
+    pub corrections: u32,
 }
 
 pub struct ReferenceAgent {
@@ -165,6 +175,7 @@ impl ReferenceAgent {
     ) -> Result<Self, ReferenceConfigError> {
         if config.max_steps == 0
             || config.max_steps > 1024
+            || config.max_corrections > 1024
             || config.content_ttl_ms == 0
             || config.max_report_bytes == 0
             || config.max_preview_bytes == 0
@@ -274,6 +285,7 @@ impl ReferenceAgent {
             protocol: self.config.protocol,
         };
         let mut previous = None;
+        let mut correction_feedback: Option<String> = None;
         for ordinal in 1..=self.config.max_steps {
             if ctx.cancellation().is_cancelled() {
                 return Err(AgentError::Cancelled);
@@ -310,6 +322,10 @@ impl ReferenceAgent {
                 run.stop = ReferenceStop::PolicyRejected;
                 return Err(failed("reference_state", "invalid host state version"));
             }
+            let mut system = self.config.system.clone();
+            if let Some(feedback) = &correction_feedback {
+                system.push(feedback.clone());
+            }
             // ModelRuntime already charges a step for each accepted inference;
             // do not double-charge it with AgentBudget::consume_step here.
             let report = step
@@ -317,7 +333,7 @@ impl ReferenceAgent {
                     ContextActionInput {
                         task_id: task.clone(),
                         history: &history,
-                        system: &self.config.system,
+                        system: &system,
                         current: &current,
                         pinned_turns: &self.config.pinned_turns,
                         state_version: state_version.as_deref(),
@@ -344,6 +360,41 @@ impl ReferenceAgent {
             let report = match report {
                 Ok(report) => report,
                 Err(error) => {
+                    if let Some((decision, reason)) =
+                        correction::eligible(&error, self.config.protocol)
+                    {
+                        if ordinal == self.config.max_steps {
+                            run.stop = ReferenceStop::StepLimit;
+                            return Err(failed(
+                                "reference_step_limit",
+                                "no action steps remain for correction",
+                            ));
+                        }
+                        if run.corrections >= self.config.max_corrections {
+                            run.stop = ReferenceStop::CorrectionLimit;
+                            return Err(failed(
+                                "reference_correction_limit",
+                                "finite correction limit reached",
+                            ));
+                        }
+                        if ctx.cancellation().is_cancelled() {
+                            return Err(AgentError::Cancelled);
+                        }
+                        budget.consume_correction()?;
+                        run.corrections += 1;
+                        let correction = ReferenceCorrectionReport {
+                            version: 1,
+                            turn_id: input.turn_id.clone(),
+                            decision: decision.clone(),
+                            ordinal,
+                            correction: run.corrections,
+                            reason,
+                        };
+                        self.emit(ctx, REFERENCE_CORRECTION_EVENT, &correction)
+                            .await?;
+                        correction_feedback = Some(correction::feedback(reason));
+                        continue;
+                    }
                     if let ContextActionError::ResultView { report, .. } = &error {
                         // The tool is already confirmed. Preserve its event references
                         // before stopping; never retry a failed feedback projection.
@@ -367,6 +418,7 @@ impl ReferenceAgent {
             )
             .await?;
             run.confirmed_steps += 1;
+            correction_feedback = None;
             match report.step.outcome {
                 StepOutcome::Final { text } => {
                     let decision = self
@@ -414,12 +466,27 @@ impl ReferenceAgent {
                     });
                 }
                 StepOutcome::AskUser { question } => {
+                    let pending = PendingQuestion {
+                        version: 1,
+                        session_id: input.session_id.clone(),
+                        task_id: task.clone(),
+                        turn_id: input.turn_id.clone(),
+                        agent_key: snapshot.identity.agent_key.clone(),
+                        pending_question: question.clone(),
+                    };
+                    if !pending.valid() {
+                        run.stop = ReferenceStop::PolicyRejected;
+                        return Err(failed(
+                            "reference_question_limit",
+                            "pending question is invalid or too large",
+                        ));
+                    }
                     run.stop = ReferenceStop::WaitingForInput;
                     return Ok(AgentTurnOutput {
                         final_text: question.clone(),
                         outcome: TurnOutcome::WaitingForInput,
                         artifact: Some(
-                            json!({"type":"reference_waiting_v1","task_id":task,"turn_id":input.turn_id,"pending_question":question}),
+                            json!({"type":"reference_waiting_v1","task_id":task,"turn_id":input.turn_id,"pending_question":question,"pending":pending}),
                         ),
                     });
                 }
@@ -495,6 +562,7 @@ impl Agent for ReferenceAgent {
                 business_verified: false,
                 completion: None,
                 repeated_observations: 0,
+                corrections: 0,
             };
             let output = self.drive(&input, ctx, &mut run).await;
             // Runtime-owned failures/cancellation keep their full typed evidence.

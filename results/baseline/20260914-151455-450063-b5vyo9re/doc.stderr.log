@@ -1,0 +1,16 @@
+ Documenting jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+ Documenting jingwei-standard v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/standard)
+ Documenting jingwei-openai v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/openai)
+ Documenting jingwei-reference-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/reference)
+ Documenting jingwei-llm-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/runtime)
+ Documenting jingwei-action v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/action)
+ Documenting jingwei-tool-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/runtime)
+ Documenting jingwei-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/runtime)
+ Documenting jingwei-journal-jsonl v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/jsonl)
+ Documenting jingwei-session-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/runtime)
+ Documenting jingwei-agent-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/agent)
+ Documenting jingwei-plugin v0.1.0 (/home/dd/luxiproject/jingwei/crates/plugin/plugin)
+ Documenting jingwei-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/core/agent)
+ Documenting jingwei-llm v0.1.0 (/home/dd/luxiproject/jingwei/crates/llm/llm)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.15s
+   Generated /home/dd/luxiproject/jingwei/target/doc/jingwei/index.html and 19 other files

@@ -646,7 +646,11 @@ async fn controlled_json_output_is_validated_against_schema_not_only_syntax() {
         if valid {
             assert_eq!(result.unwrap().content.as_deref(), Some(value));
         } else {
-            assert_protocol(result.unwrap_err(), ModelProtocolError::SchemaValidation);
+            let error = result.unwrap_err();
+            assert!(!format!("{error:?}").contains(value));
+            assert!(
+                matches!(error, ModelGatewayError::SchemaRejected { response } if response.content.as_deref() == Some(value))
+            );
         }
         close(registry, turn).await;
     }
@@ -677,7 +681,9 @@ async fn controlled_native_tool_arguments_are_schema_checked() {
             .await;
         assert_eq!(result.is_ok(), valid);
         if !valid {
-            assert_protocol(result.unwrap_err(), ModelProtocolError::SchemaValidation);
+            assert!(
+                matches!(result.unwrap_err(), ModelGatewayError::SchemaRejected { response } if response.tool_calls[0].arguments == json!({"query":2}))
+            );
         }
         close(registry, turn).await;
     }

@@ -1,0 +1,74 @@
+[
+  {
+    "Name": "fmt",
+    "Command": "cargo fmt --all -- --check",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.16,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/fmt.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/fmt.stderr.log"
+  },
+  {
+    "Name": "check",
+    "Command": "cargo check --workspace --all-targets --all-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 1.09,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/check.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/check.stderr.log"
+  },
+  {
+    "Name": "default-check",
+    "Command": "cargo check --package jingwei --no-default-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.4,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/default-check.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/default-check.stderr.log"
+  },
+  {
+    "Name": "test",
+    "Command": "cargo test --workspace --all-features --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 5.3,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/test.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/test.stderr.log"
+  },
+  {
+    "Name": "clippy",
+    "Command": "cargo clippy --workspace --all-targets --all-features --locked --offline --jobs 4 -- -D warnings",
+    "ExitCode": 101,
+    "ElapsedSeconds": 0.51,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/clippy.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/clippy.stderr.log"
+  },
+  {
+    "Name": "doc",
+    "Command": "cargo doc --workspace --all-features --no-deps --locked --offline --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 4.19,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/doc.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/doc.stderr.log"
+  },
+  {
+    "Name": "private-fmt",
+    "Command": "cargo fmt --manifest-path tests/model-protocol/Cargo.toml -- --check",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.14,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/private-fmt.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/private-fmt.stderr.log"
+  },
+  {
+    "Name": "private-test",
+    "Command": "cargo test --manifest-path tests/model-protocol/Cargo.toml --locked --offline --target-dir target --jobs 4",
+    "ExitCode": 0,
+    "ElapsedSeconds": 0.82,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/private-test.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/private-test.stderr.log"
+  },
+  {
+    "Name": "private-clippy",
+    "Command": "cargo clippy --manifest-path tests/model-protocol/Cargo.toml --all-targets --locked --offline --target-dir target --jobs 4 -- -D warnings",
+    "ExitCode": 101,
+    "ElapsedSeconds": 3.51,
+    "Stdout": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/private-clippy.stdout.log",
+    "Stderr": "/home/dd/luxiproject/jingwei/results/baseline/20260914-151455-450063-b5vyo9re/private-clippy.stderr.log"
+  }
+]

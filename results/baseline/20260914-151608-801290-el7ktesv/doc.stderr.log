@@ -1,0 +1,5 @@
+ Documenting jingwei v0.1.0 (/home/dd/luxiproject/jingwei/crates/sdk/facade)
+ Documenting jingwei-reference-agent v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/reference)
+ Documenting jingwei-action v0.1.0 (/home/dd/luxiproject/jingwei/crates/agent/action)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.48s
+   Generated /home/dd/luxiproject/jingwei/target/doc/jingwei/index.html and 19 other files

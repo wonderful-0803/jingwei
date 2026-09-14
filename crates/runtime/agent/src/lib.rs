@@ -1496,7 +1496,8 @@ fn terminal_fields_for_model_error(error: &ModelGatewayError) -> TerminalErrorFi
         ModelGatewayError::Model(LlmError::StreamParse(_)) => {
             ("model_stream_parse", "model stream parsing failed", false)
         }
-        ModelGatewayError::Model(LlmError::Protocol(_)) => {
+        ModelGatewayError::SchemaRejected { .. }
+        | ModelGatewayError::Model(LlmError::Protocol(_)) => {
             ("model_protocol", "model protocol validation failed", false)
         }
         ModelGatewayError::Model(LlmError::Cancelled) => {
