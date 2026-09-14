@@ -8,6 +8,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 use tokio::sync::Barrier;
 
+mod crashes;
 mod grants;
 mod recovery;
 

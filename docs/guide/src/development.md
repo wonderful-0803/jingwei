@@ -6,7 +6,7 @@ workspace 目前由 18 个 crate 组成，包版本暂为 0.1.0；这是开发�
 
 Rust 开发版本固定为 1.96.0，最低支持声明同步为 1.96。此前的 1.85 声明与源码使用的语法不符；本轮基于真实构建结果收敛声明，未承诺更旧工具链。
 
-`rust-toolchain.toml` 会指定开发版本及 Rustfmt/Clippy。早期阶段有 Windows 与 Linux 验证记录；d2 阶段当前在 Windows x64/MSVC 验证，尚未重跑 Linux，不能据此宣称所有端侧平台已验证。Windows 构建需要 MSVC 构建工具和 Windows SDK。
+`rust-toolchain.toml` 会指定开发版本及 Rustfmt/Clippy。早期阶段有 Windows 与 Linux 验证记录；d2-c2/c3 已在 Linux GNU 完成两套 workspace 的九项基线；Windows x64/MSVC 有此前阶段记录，不能据此宣称所有端侧平台已验证。Windows 构建需要 MSVC 构建工具和 Windows SDK。
 
 ## 框架源码检查
 
@@ -52,3 +52,9 @@ JW-04-d2-b 增加 BudgetExecutionLease、with_durable_budget 与确认回执；i
 JW-04-d2-c1 将新导出快照升级为 V3，增加宿主[审计增额](budget-grants.md)和稳定操作 ID；V1/V2 读取规则保留。自定义存储须在真实 CAS 与链读取中增加 validate_transition 校验，不再仅检查 revision。审计限制有限，核心不新增 IO 或第三方依赖；冻结占用仍不能通过增额解除。
 
 JW-04-d2-c2 增加 JSONL 跨进程写者锁和[预算候选恢复](budget-recovery.md)。带恢复审计的检查点升级为 V4；自定义存储须支持 compare_exchange_guarded，将所有权保留到所有已接收 IO 结束，默认实现拒绝恢复。预算核心新增对既有 jingwei-session 契约 crate 的依赖，没有新增第三方依赖或 IO runtime。
+
+## Linux 存储故障验证
+
+GNU/Linux 的完整私有测试还需要 `cc`、glibc 动态加载和可用的 `/proc/self/fd`。测试在自己的子进程中使用文件大小限制制造真实 EFBIG，并以私有 LD_PRELOAD 包装器注入同步前/后 EIO；生成的共享库只位于 target/storage-faults，不进入框架依赖或 Cargo 包。缺少编译器或注入未命中时测试明确失败。其他平台仍运行通用契约与重试回归，不声称已验证相同系统调用故障。
+
+JW-04-d2-c3 修复 JSONL 直接精确重试：即使事件字节已可见，也必须重新同步确认才能返回 ReplayedExact；失败继续锁存不确定状态。测试覆盖零字节/部分写入、同步回执失败、写后退出及额外 runtime 中断窗口。进程退出和同步错误注入不等于硬件掉电，工具副作用不确定性仍按[恢复边界](budget-recovery.md)处理。

@@ -264,6 +264,22 @@ impl JsonlSessionPersistence {
             .find(|existing| existing.event_id == event.event_id)
         {
             if existing == event {
+                // A fresh provider may see a complete line whose previous writer
+                // never confirmed sync. Visibility alone cannot acknowledge it.
+                let file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&path)
+                    .map_err(|error| {
+                        io_error(
+                            "replay_open",
+                            error,
+                            CommitCertainty::DefinitelyNotCommitted,
+                        )
+                    })?;
+                if let Err(error) = self.sync_data.sync_data(&file) {
+                    return Err(latch_indeterminate(&mut state, "replay_sync_data", error));
+                }
                 return Ok(PersistAppendOutcome::ReplayedExact);
             }
             return Err(SessionPersistenceError::Conflict {
@@ -820,6 +836,17 @@ mod tests {
         ));
 
         drop(persistence);
+        let retry = JsonlSessionPersistence::with_sync_data(&root, Arc::new(FailingSyncData));
+        assert!(matches!(
+            retry.commit_durable(&expected).await,
+            Err(SessionPersistenceError::Io {
+                operation: "replay_sync_data",
+                certainty: CommitCertainty::Indeterminate,
+                ..
+            })
+        ));
+        assert!(retry.load(&session_id).await.is_err());
+        drop(retry);
         let restarted = JsonlSessionPersistence::new(&root);
         assert_eq!(restarted.load(&session_id).await.unwrap(), [expected]);
         std::fs::remove_dir_all(root).unwrap();

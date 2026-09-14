@@ -1,0 +1,45 @@
+   Compiling jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.76s
+     Running unittests src/lib.rs (target/debug/deps/jingwei_private_protocol_tests-0e97a84517580738)
+
+running 7 tests
+test checkpoint_file::faults::fault_child ... ok
+test checkpoint_file::faults::restart_child ... ok
+test checkpoint_file::faults::session_sync_errors_and_direct_retry_require_confirmation ... FAILED
+test checkpoint_file::faults::budget_sync_errors_never_acknowledge_a_visible_candidate ... ok
+test checkpoint_file::faults::session_kernel_write_failures_latch_uncertainty ... ok
+test checkpoint_file::faults::budget_kernel_write_failures_preserve_or_freeze_the_log ... ok
+test checkpoint_file::faults::complete_write_then_process_exit_requires_restart_confirmation ... ok
+
+failures:
+
+---- checkpoint_file::faults::session_sync_errors_and_direct_retry_require_confirmation stdout ----
+
+thread 'checkpoint_file::faults::session_sync_errors_and_direct_retry_require_confirmation' (330) panicked at src/checkpoint_file/faults.rs:87:5:
+assertion `left == right` failed: session/sync-before: 
+running 1 test
+test checkpoint_file::faults::fault_child ... FAILED
+
+failures:
+
+failures:
+    checkpoint_file::faults::fault_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 260 filtered out; finished in 0.00s
+
+ 
+thread 'checkpoint_file::faults::fault_child' (345) panicked at src/checkpoint_file/faults.rs:176:5:
+Ok(ReplayedExact)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  left: Some(101)
+ right: Some(0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    checkpoint_file::faults::session_sync_errors_and_direct_retry_require_confirmation
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 254 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `--lib`

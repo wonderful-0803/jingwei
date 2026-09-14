@@ -1,0 +1,5 @@
+    Checking jingwei-journal-jsonl v0.1.0 (/home/dd/luxiproject/jingwei/crates/session/jsonl)
+    Checking jingwei-agent-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/agent)
+    Checking jingwei-standard v0.1.0 (/home/dd/luxiproject/jingwei/crates/runtime/standard)
+    Checking jingwei-tool-runtime v0.1.0 (/home/dd/luxiproject/jingwei/crates/tools/runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.35s

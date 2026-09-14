@@ -6,7 +6,7 @@
 
 JSONL provider 首次读取或写入 Session 时取得非阻塞的跨进程排他文件锁。同一 provider 的克隆共享所有权，不同 Session 可以独立工作。锁贯穿缓存历史、正文、报告、终态、settle 和预算收尾；直到所有 provider 克隆及已接收 IO 都释放。`registry.shutdown()` 负责排空，之后还须释放 runtime、registry 和 provider 句柄，才能交接所有权。
 
-恢复使用独立的 `JsonlRecoveryOwnership::acquire`。仍有写者时返回 `SessionPersistenceError::Io`，operation 为 `session_writer_lock`；进程退出由操作系统释放锁，不使用 PID 猜测或 TTL。恢复期间其他合作写者无法读取或追加同一 Session。读取完整日志后还会同步确认已有内容；损坏或同步失败不能成为恢复依据。
+恢复使用独立的 `JsonlRecoveryOwnership::acquire`。仍有写者时返回 `SessionPersistenceError::Io`，operation 为 `session_writer_lock`；进程退出由操作系统释放锁，不使用 PID 猜测或 TTL。恢复期间其他合作写者无法读取或追加同一 Session。读取完整日志和直接精确重试已有事件时，都会同步确认已有内容；损坏或同步失败不能成为恢复依据。
 
 使用可信本地目录和支持文件锁的文件系统。`*.writer.lock` 是永久侧文件，运行期间不得删除、替换或绕过它写日志。该锁隔离遵守同一协议的 provider，不能终止绕过框架的进程或撤销外部工具副作用。自定义 provider 通过 `SessionRecoveryOwnership` 实现相同的宿主契约；actor/source 文本并不提供认证。
 
@@ -66,4 +66,4 @@ async fn recover_retained_candidate(
 | FrozenUnconfirmedWork | 日志尚无报告和终态闭合证据 |
 | FrozenClosedTailNeedsCandidate | 日志尾部有报告和终态，仍需原始候选及完整核验 |
 
-分类中的闭合尾部只是线索，实际恢复还要验证内容。缺失结果、缺少 ID 水位、错误历史、无法隔离旧执行者时均不自动恢复。实际 write/sync 系统调用故障的完整矩阵、任务业务状态、待答状态和工具幂等恢复仍待后续验收。
+分类中的闭合尾部只是线索，实际恢复还要验证内容。缺失结果、缺少 ID 水位、错误历史、无法隔离旧执行者时均不自动恢复。已验证零字节/部分 write 的内核失败、同步前后错误注入和选定进程中断窗口。实际介质故障及掉电、任务业务状态、待答状态和工具幂等恢复仍待后续验收。

@@ -12,6 +12,9 @@ use jingwei::id::{SessionId, TaskId, TurnId};
 use jingwei_budget_file::{FileBudgetCheckpointConfig, FileBudgetCheckpointStore};
 use serde_json::{Value, json};
 
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod faults;
+
 struct Clock;
 impl BudgetClock for Clock {
     fn now(&self) -> Duration {
