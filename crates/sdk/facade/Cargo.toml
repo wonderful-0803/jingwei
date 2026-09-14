@@ -14,6 +14,7 @@ documentation = "https://docs.rs/jingwei"
 description = "Jingwei Rust Agent Harness 公共 façade"
 
 [dependencies]
+jingwei-reference-agent = { workspace = true, optional = true }
 jingwei-action = { workspace = true, optional = true }
 jingwei-context = { workspace = true, optional = true }
 jingwei-agent = { workspace = true }
@@ -26,5 +27,6 @@ jingwei-session = { workspace = true }
 jingwei-tool = { workspace = true }
 
 [features]
+reference-agent = ["dep:jingwei-reference-agent", "actions", "context"]
 actions = ["dep:jingwei-action"]
 context = ["dep:jingwei-context", "jingwei-action?/context"]

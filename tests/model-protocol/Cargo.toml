@@ -9,7 +9,7 @@ publish = false
 [workspace]
 
 [dependencies]
-jingwei = { path = "../../crates/sdk/facade", features = ["actions", "context"] }
+jingwei = { path = "../../crates/sdk/facade", features = ["actions", "context", "reference-agent"] }
 jingwei-tool-runtime = { path = "../../crates/tools/runtime" }
 jingwei-session-runtime = { path = "../../crates/session/runtime" }
 jingwei-agent-runtime = { path = "../../crates/runtime/agent" }

@@ -2,7 +2,7 @@
 
 ## 当前源码快照
 
-workspace 目前由 19 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
+workspace 目前由 20 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
 
 Rust 开发版本固定为 1.96.0，最低支持声明同步为 1.96。此前的 1.85 声明与源码使用的语法不符；本轮基于真实构建结果收敛声明，未承诺更旧工具链。
 
@@ -66,3 +66,5 @@ JW-05-b 增加可选 jingwei-context（facade 的 context feature 默认关闭�
 JW-05-c 在既有可选 context 组件内增加 ContextBuilder / ContextTokenCounter、硬/软上下文预算与可序列化构建报告。复用 core 的 TokenBudgetMode/TokenBoundEvidence，不增加依赖。硬模式需要宿主提供目标模型的可信输入计数与可执行输出上界，内置估算器仅支持软预算。见[上下文预算](context-budget.md)。
 
 JW-05-d 在 context 中增加工具选择、受控结果视图和有界 MemoryContentStore。jingwei-action 的可选 context feature 接入 ContextualActionStep；facade 同时开启 actions/context 时自动连接。仅增加对既有本地 context crate 的可选依赖，不新增第三方包，单独 actions 仍独立。见[工具视图](tool-views.md)。
+
+JW-06-a 增加默认关闭的 jingwei-reference-agent，facade 通过 reference-agent feature 导出。组合现有 Agent、上下文和动作接口，不修改 core runtime 或添加第三方依赖。模型调用自动计步，报告是 body 观察，取消/预算停止仍以 canonical 终态为准。见[有限参考 Agent](reference-agent.md)。

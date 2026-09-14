@@ -32,6 +32,7 @@ canonical 模型运行时提供有限执行槽、等待队列、总在途容量�
 12. 阅读[确定性对话投影](conversation-projection.md)，将规范历史转换为有来源、可重复的模型消息。
 13. 阅读[上下文预算与消息选择](context-budget.md)，保护必要约束并控制请求大小。
 14. 阅读[工具视图与动作接入](tool-views.md)，在授权范围内选择工具并按需读取大结果。
-15. 后续按实现进度补充完整装配入门、上下文、参考 Agent 及完整恢复教程。
+15. 阅读[有限参考 Agent](reference-agent.md)，显式装配有限步骤驱动并理解停止与报告。
+16. 后续按实现进度补充完整装配入门、上下文、参考 Agent 及完整恢复教程。
 
-本指南使用 VitePress 独立构建，阅读方式见[编写与发布指南](writing-guide.md)。类型和方法签名见 [API 参考](api-reference.md)。完整装配入门、上下文与参考 Agent 教程将随实现补齐。
+本指南使用 VitePress 独立构建，阅读方式见[编写与发布指南](writing-guide.md)。类型和方法签名见 [API 参考](api-reference.md)。完整装配与任务恢复教程将随实现补齐。

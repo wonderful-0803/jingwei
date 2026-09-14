@@ -1389,3 +1389,6 @@ fn json_protocol_rejects_external_schema_references_without_io() {
 
 #[path = "context_actions.rs"]
 mod context_actions;
+
+#[path = "reference_agent.rs"]
+mod reference_agent;

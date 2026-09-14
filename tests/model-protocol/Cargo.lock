@@ -702,6 +702,7 @@ dependencies = [
  "jingwei-core",
  "jingwei-llm",
  "jingwei-plugin",
+ "jingwei-reference-agent",
  "jingwei-runtime",
  "jingwei-session",
  "jingwei-tool",
@@ -883,6 +884,22 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "jingwei-reference-agent"
+version = "0.1.0"
+dependencies = [
+ "jingwei-action",
+ "jingwei-agent",
+ "jingwei-budget",
+ "jingwei-context",
+ "jingwei-core",
+ "jingwei-llm",
+ "jingwei-tool",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

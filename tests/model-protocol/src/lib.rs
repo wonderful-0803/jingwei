@@ -12,6 +12,7 @@
 #![doc = include_str!("../../../docs/guide/src/conversation-projection.md")]
 #![doc = include_str!("../../../docs/guide/src/context-budget.md")]
 #![doc = include_str!("../../../docs/guide/src/tool-views.md")]
+#![doc = include_str!("../../../docs/guide/src/reference-agent.md")]
 
 #[cfg(test)]
 mod actions;

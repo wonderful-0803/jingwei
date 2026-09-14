@@ -1,0 +1,29 @@
+[package]
+name = "jingwei-reference-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+documentation = "https://docs.rs/jingwei-reference-agent"
+description = "Optional bounded reference Agent over controlled Jingwei gateways"
+
+[dependencies]
+jingwei-core.workspace = true
+jingwei-agent.workspace = true
+jingwei-budget.workspace = true
+jingwei-action = { workspace = true, features = ["context"] }
+jingwei-context.workspace = true
+jingwei-llm.workspace = true
+jingwei-tool.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

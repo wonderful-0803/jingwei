@@ -25,9 +25,10 @@ cargo doc --workspace --all-features --no-deps --locked
 | 确定性对话投影 | `jingwei::context`，需启用 `context` feature | [对话投影](conversation-projection.md) |
 | 上下文计数、预算与裁剪 | `jingwei::context` 的 ContextBuilder / ContextTokenCounter | [上下文预算](context-budget.md) |
 | 工具/结果视图与上下文动作 | `jingwei::context`；`jingwei::action::ContextualActionStep` 需 actions/context | [工具视图](tool-views.md) |
+| 官方有限 Agent body | `jingwei::reference`，需 `reference-agent` feature | [有限参考 Agent](reference-agent.md) |
 | 本地文件检查点适配器 | 单独依赖 `jingwei-budget-file` | [文件检查点](file-checkpoint-store.md) |
 
-默认 façade 不启用可选 action/context 组件，也不包含文件检查点适配器。只引入应用实际需要的组件，不把指南目录或验证工程加入 Cargo 依赖。
+默认 façade 不启用可选 action/context/reference-agent 组件，也不包含文件检查点适配器。只引入应用实际需要的组件，不把指南目录或验证工程加入 Cargo 依赖。
 
 ## 源码与版本
 

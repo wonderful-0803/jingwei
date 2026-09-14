@@ -60,6 +60,7 @@ export default defineConfig({
           { text: '确定性对话投影', link: '/conversation-projection' },
           { text: '上下文预算与消息选择', link: '/context-budget' },
           { text: '工具视图与动作接入', link: '/tool-views' },
+          { text: '有限参考 Agent', link: '/reference-agent' },
         ],
       },
       {

@@ -429,6 +429,9 @@ async fn exclusive_os_lock_returns_busy_and_never_writes() {
         store.compare_exchange(0, &image(1)).await,
         Err(BudgetCheckpointStoreError::Busy)
     ));
+    // Make the release boundary explicit even while other tests spawn children.
+    // A concurrently inherited open file description can outlive this handle.
+    locked.unlock().unwrap();
     drop(locked);
     assert!(fs::read(temp.path()).unwrap().is_empty());
     store.compare_exchange(0, &image(1)).await.unwrap();
