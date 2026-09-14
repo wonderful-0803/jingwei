@@ -649,3 +649,6 @@ mod agent_budget;
 
 #[cfg(test)]
 mod task_file;
+
+#[doc = include_str!("../../../docs/guide/src/tool-retries.md")]
+pub mod tool_retries_guide {}

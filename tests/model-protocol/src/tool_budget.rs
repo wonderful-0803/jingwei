@@ -880,3 +880,6 @@ async fn an_accepted_driver_dropped_before_first_poll_settles_before_turn_drain(
     fixture.run.finish().unwrap();
     fixture.registry.shutdown().await.unwrap();
 }
+
+#[path = "tool_retry.rs"]
+mod retry;

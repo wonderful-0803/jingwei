@@ -161,6 +161,8 @@ pub struct ModelResult {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<Box<crate::ToolOperation>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<ActionContext>,
     pub id: String,
     pub name: String,

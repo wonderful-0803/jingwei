@@ -72,6 +72,7 @@ fn history(turns: usize) -> ConversationProjection {
             turn,
             SessionEventKind::ToolCall {
                 call: ToolCall {
+                    operation: None,
                     action: None,
                     id: "reused".into(),
                     name: "lookup".into(),

@@ -40,6 +40,7 @@ fn done() -> SessionEventKind {
 fn call(id: &str) -> SessionEventKind {
     SessionEventKind::ToolCall {
         call: ToolCall {
+            operation: None,
             action: None,
             id: id.into(),
             name: "lookup".into(),

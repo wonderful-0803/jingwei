@@ -235,4 +235,4 @@ JW-06-c 增加默认最多两次的结构化纠错，计入共享 Task 修正预
 
 JW-06-d 完成有限参考 Agent 的本地契约验收：五条公共路径、真实审批拒绝、同 runtime 的自定义 Agent 对照，以及正常/异常收尾证据。下一阶段进入 JW-07 完整 Task 状态与恢复。
 
-JW-07-a 提供可选的[任务状态契约](docs/guide/src/task-state.md)：版本化快照、兼容性/日志边界校验、待核验诊断和有界内存 CAS 存储。JW-07-b 已增加独立 jingwei-task-file，支持本地文件 CAS、落盘确认和故障核验；JW-07-c 已接入[受控任务续跑](docs/guide/src/task-recovery.md)，支持有限参考 Agent 步骤暂停与待答的新进程交接；工具幂等和完整故障验收继续按阶段推进。
+JW-07-a 提供可选的[任务状态契约](docs/guide/src/task-state.md)：版本化快照、兼容性/日志边界校验、待核验诊断和有界内存 CAS 存储。JW-07-b 已增加独立 jingwei-task-file，支持本地文件 CAS、落盘确认和故障核验；JW-07-c 已接入[受控任务续跑](docs/guide/src/task-recovery.md)，支持有限参考 Agent 步骤暂停与待答的新进程交接；JW-07-d 已提供[工具副作用与显式重试契约](docs/guide/src/tool-retries.md)，完整故障验收继续按阶段推进。

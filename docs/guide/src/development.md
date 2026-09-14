@@ -80,3 +80,5 @@ JW-07-a 增加可选 jingwei-task 与 task-state feature：版本化[任务状�
 JW-07-b 新增独立 jingwei-task-file：带 OS 排他锁的连续 JSONL 状态链、落盘确认、精确重试、有界后台 IO 与关闭排空。Linux GNU 故障夹具已覆盖任务状态适配器；步骤检查点与受控恢复协调继续在 JW-07-c 实施。见[任务状态本地持久化](task-state.md#本地持久化任务状态)。
 
 JW-07-c 新增独立 jingwei-task-runtime 与 Checkpointed 终态，有限参考 Agent 可逐步关闭回合并持久保存，再由宿主显式续跑或答复。三个独立进程的步骤/待答/完成交接已验证，当前策略、预算与工具授权仍重新检查。见[受控任务续跑](task-recovery.md)。
+
+JW-07-d 在既有 core/tool/runtime 中增加[工具副作用与显式重试](tool-retries.md)，不新增 crate 或依赖。按用户最新要求，后续每批按改动范围运行相关测试及必要检查，不重复执行多轮全量基线；完整阶段验收另行集中执行。

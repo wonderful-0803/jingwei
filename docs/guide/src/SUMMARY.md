@@ -7,6 +7,7 @@
 - [任务预算账本](task-budget.md)
 - [任务状态契约](task-state.md)
 - [受控任务续跑](task-recovery.md)
+- [工具副作用与重试](tool-retries.md)
 - [预算快照与恢复原语](budget-checkpoints.md)
 - [文件检查点存储](file-checkpoint-store.md)
 - [持久预算运行与恢复边界](durable-budget.md)
