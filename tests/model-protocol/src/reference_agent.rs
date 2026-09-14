@@ -172,6 +172,9 @@ impl RefFixture {
             calls,
         }
     }
+    fn audit_closed_turns(&self) {
+        acceptance::assert_closed(&self.log.lock().unwrap());
+    }
     fn reports(&self) -> Vec<ReferenceRunReport> {
         self.log
             .lock()
@@ -238,6 +241,7 @@ async fn public_reference_agent_answers_without_a_tool_gateway_and_marks_claim_u
             .position(|e| matches!(e.kind, SessionEventKind::AssistantMessage { .. }))
             .unwrap();
         assert!(run < complete);
+        fixture.audit_closed_turns();
         fixture.harness.shutdown().await.unwrap();
     }
 }
@@ -280,6 +284,7 @@ async fn public_reference_agent_runs_dependent_tools_without_application_loop() 
             fixture.reports()[0].stop,
             ReferenceStop::ModelClaimedComplete
         );
+        fixture.audit_closed_turns();
         fixture.harness.shutdown().await.unwrap();
     }
 }
@@ -311,6 +316,7 @@ async fn finite_limit_stops_repeated_successful_calls_without_extra_inference() 
             .iter()
             .any(|e| matches!(e.kind, SessionEventKind::AssistantMessage { .. }))
     );
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -331,6 +337,7 @@ async fn invalid_action_and_semantic_tool_failure_halt_without_fallback() {
     );
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
     assert!(fixture.log.lock().unwrap().iter().any(|event| matches!(&event.kind, SessionEventKind::Error { code, .. } if code == "model_protocol")));
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
     let fixture = RefFixture::new(
         config(8, false),
@@ -349,6 +356,7 @@ async fn invalid_action_and_semantic_tool_failure_halt_without_fallback() {
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.steps()[0].outcome, ReferenceStepOutcome::ToolFailed);
     assert_eq!(fixture.reports()[0].stop, ReferenceStop::ToolHalted);
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -416,6 +424,7 @@ async fn ask_user_closes_turn_and_host_reuses_same_task_budget_on_reply() {
             .unwrap()
             .contains("哪个目录？")
     );
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -456,6 +465,7 @@ async fn task_budget_stops_before_reference_step_limit_and_runtime_retains_final
     );
     assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
     assert!(fixture.log.lock().unwrap().iter().any(|e|matches!(&e.kind,SessionEventKind::TaskRunReport{report} if matches!(report.stop,TaskRunStop::Budget(_))&&report.capabilities_drained)));
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -484,6 +494,7 @@ async fn cancellation_drains_pending_tool_and_never_starts_another_step() {
     assert!(report.task_run_report().unwrap().capabilities_drained);
     assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
     assert!(report.events().iter().any(|e|matches!(&e.kind,SessionEventKind::ToolResult{result} if matches!(result.outcome,ToolRecordedOutcome::Failed{category:ToolFailureCategory::Cancelled,..}))));
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -513,6 +524,7 @@ async fn report_limit_failure_does_not_turn_model_claim_into_success() {
             .iter()
             .any(|e| matches!(e.kind, SessionEventKind::AssistantMessage { .. }))
     );
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -542,6 +554,7 @@ async fn custom_agent_remains_replaceable_with_the_same_runtime() {
     assert_eq!(report.final_text(), "custom");
     assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 0);
     assert!(fixture.reports().is_empty());
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[test]
@@ -650,6 +663,7 @@ async fn report_write_failure_preserves_canonical_tool_evidence_and_prevents_nex
             .iter()
             .any(|e| matches!(e.kind, SessionEventKind::AssistantMessage { .. }))
     );
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -671,6 +685,7 @@ async fn missing_shared_budget_is_rejected_before_any_model_or_tool_call() {
     assert!(fixture.log.lock().unwrap().iter().any(
         |e| matches!(&e.kind,SessionEventKind::Error{code,..} if code=="reference_budget_required")
     ));
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 struct BackwardsClock(AtomicUsize);
@@ -703,6 +718,7 @@ async fn clock_regression_and_context_rejection_stop_without_extra_inference() {
     );
     assert_eq!(fixture.reports()[0].stop, ReferenceStop::ClockFailure);
     assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
     let mut settings = config(4, false);
     settings.context_budget.window_tokens = 1;
@@ -716,6 +732,7 @@ async fn clock_regression_and_context_rejection_stop_without_extra_inference() {
     );
     assert_eq!(fixture.reports()[0].stop, ReferenceStop::ContextRejected);
     assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 0);
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 
@@ -790,6 +807,7 @@ async fn completion_requires_host_evidence_and_rejection_never_retries() {
                 );
                 assert_eq!(run.completion, Some(decision));
             }
+            fixture.audit_closed_turns();
             fixture.harness.shutdown().await.unwrap();
         }
     }
@@ -816,6 +834,7 @@ async fn repeated_calls_stop_after_confirmed_third_result() {
         assert_eq!(run.stop, ReferenceStop::NoProgress);
         assert_eq!(run.repeated_observations, 3);
         assert!(fixture.log.lock().unwrap().iter().any(|e| matches!(&e.kind, SessionEventKind::TaskRunReport { report } if report.budget.charged.steps == 3 && report.capabilities_drained)));
+        fixture.audit_closed_turns();
         fixture.harness.shutdown().await.unwrap();
     }
 }
@@ -851,6 +870,7 @@ async fn explicit_polling_and_changing_state_allow_progress_but_keep_step_limit(
                 fixture.reports()[0].repeated_observations,
                 if changing { 1 } else { 4 }
             );
+            fixture.audit_closed_turns();
             fixture.harness.shutdown().await.unwrap();
         }
     }
@@ -878,6 +898,7 @@ async fn oversized_progress_observation_stops_after_preserving_execution() {
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.steps()[0].tool_events.len(), 2);
     assert_eq!(fixture.reports()[0].stop, ReferenceStop::PolicyRejected);
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[test]
@@ -932,9 +953,13 @@ async fn changed_arguments_reset_consecutive_repetition() {
             .unwrap();
         assert_eq!(fixture.calls.load(Ordering::SeqCst), 4);
         assert_eq!(fixture.reports()[0].repeated_observations, 1);
+        fixture.audit_closed_turns();
         fixture.harness.shutdown().await.unwrap();
     }
 }
 
 #[path = "reference_correction.rs"]
 mod correction;
+
+#[path = "reference_acceptance.rs"]
+mod acceptance;

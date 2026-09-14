@@ -81,6 +81,7 @@ async fn invalid_parameters_receive_structured_feedback_before_any_tool_executio
                 .unwrap()
                 .contains("jingwei_action_correction_v1")
         );
+        fixture.audit_closed_turns();
         fixture.harness.shutdown().await.unwrap();
     }
 }
@@ -128,6 +129,7 @@ async fn malformed_json_can_be_corrected_without_hiding_its_canonical_failure() 
             .model_results,
         2
     );
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
 #[tokio::test]
@@ -161,6 +163,7 @@ async fn local_and_shared_correction_limits_never_start_an_extra_inference() {
             if !shared {
                 assert_eq!(fixture.reports()[0].stop, ReferenceStop::CorrectionLimit);
             }
+            fixture.audit_closed_turns();
             fixture.harness.shutdown().await.unwrap();
         }
     }
@@ -184,6 +187,7 @@ async fn no_correction_is_charged_without_another_step_or_when_disabled() {
         assert!(corrections(&fixture).is_empty());
         assert_eq!(fixture.reports()[0].stop, stop);
         assert_eq!(fixture.reports()[0].corrections, 0);
+        fixture.audit_closed_turns();
         fixture.harness.shutdown().await.unwrap();
     }
 }
@@ -215,6 +219,7 @@ async fn invisible_tools_and_denied_execution_are_never_corrected() {
             assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 1);
             assert_eq!(fixture.calls.load(Ordering::SeqCst), usize::from(denied));
             assert!(corrections(&fixture).is_empty());
+            fixture.audit_closed_turns();
             fixture.harness.shutdown().await.unwrap();
         }
     }
@@ -280,6 +285,7 @@ async fn waiting_handoff_reuses_corrections_and_rejects_mismatched_reply_or_rese
         let resumed = serde_json::to_string(&requests[2]).unwrap();
         assert!(resumed.contains("reference_reply_v1"));
         assert!(resumed.contains(first.turn_id().as_str()));
+        fixture.audit_closed_turns();
         fixture.harness.shutdown().await.unwrap();
     }
 }
@@ -308,5 +314,6 @@ async fn correction_report_failure_keeps_charge_and_prevents_retry() {
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
     assert!(corrections(&fixture).is_empty());
     assert!(fixture.log.lock().unwrap().iter().any(|e| matches!(&e.kind, SessionEventKind::TaskRunReport { report } if report.budget.charged.corrections == 1 && report.capabilities_drained)));
+    fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
