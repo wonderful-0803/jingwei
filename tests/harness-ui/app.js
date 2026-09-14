@@ -4,6 +4,16 @@ const pretty = value => JSON.stringify(value, null, 2);
 const code = value => `<pre>${escape(typeof value === 'string' ? value : pretty(value))}</pre>`;
 let modelState=null, catalogSignature='', runActive=false;
 let bootstrap, current = null, runData = null, activeTab = 'request', selectedCall = 0, selectedEvent = null, caseId, pollBusy = false, historySignature = '', feedSignature = '';
+const manualInfo = {
+  'manual-merge':['合并两条记录','两次读取 → 格式化写入'],
+  'manual-route':['按线索二次读取','先读键名 → 再读内容'],
+  'manual-stock':['库存不足判断','比较两个数 → hold'],
+  'manual-boundary':['库存相等边界','边界条件 → ready'],
+  'manual-missing':['缺少地点信息','不猜测 → 标记待确认'],
+  'manual-injection':['工具结果干扰','提取数据 → 忽略恶意指令'],
+  'manual-overwrite':['覆盖旧内容','读取新旧版本 → 覆盖'],
+  'manual-two-fields':['写入两个字段','提取负责人与城市 → 两次写入']
+};
 const names = {'doc-copy':'文档复制','doc-extract':'文档字段提取','order-ready':'订单 · 有库存','order-hold':'订单 · 无库存'};
 async function api(path, data) {
   const options = data === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json','X-Jingwei-Token':bootstrap.token},body:JSON.stringify(data)};
@@ -21,7 +31,7 @@ function welcome() {
   $('feed').innerHTML='<div class="welcome"><span class="welcome-icon">⌘</span><h2>从一个可检查的任务开始</h2><p>选择场景，编辑任务。每次模型请求、工具动作与预算结算都会留在这里。</p><div id="presets" class="presets"></div><div class="note">工具仅操作模拟记录。每次运行从初始状态开始。</div></div>';
   for(const c of bootstrap.cases) {
     const button=document.createElement('button'); button.className='preset';
-    button.innerHTML=`<span>↗</span>${escape(names[c.id])}<small>${escape(c.domain === 'documents' ? '读取 → 处理 → 写入' : '读取库存 → 判断 → 更新状态')}</small>`;
+    button.innerHTML=`<span>↗</span>${escape(manualInfo[c.id]?.[0] || names[c.id] || c.id)}<small>${escape(manualInfo[c.id]?.[1] || (c.domain === 'documents' ? '读取 → 处理 → 写入' : '读取库存 → 判断 → 更新状态'))}</small>`;
     button.onclick=()=>loadCase(c); $('presets').append(button);
   }
 }

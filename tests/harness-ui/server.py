@@ -33,6 +33,11 @@ def read_json(path, default=None):
         return default
 
 
+def available_cases():
+    base = REPO / 'tests/model-protocol/eval'
+    return read_json(base / 'pilot.json', []) + read_json(base / 'manual.json', [])
+
+
 def save(path, value):
     temp = path.with_suffix('.tmp')
     temp.write_text(json.dumps(value, ensure_ascii=False, indent=2))
@@ -118,7 +123,7 @@ def worker(run):
 def create_run(data):
     if any(r['status'] == 'running' for r in RUNS.values()):
         raise ValueError('已有任务运行中，请等待或中断后再开始。')
-    cases = read_json(REPO / 'tests/model-protocol/eval/pilot.json')
+    cases = available_cases()
     chosen = next((c for c in cases if c['id'] == data.get('case_id')), None)
     if chosen is None:
         raise ValueError('未知的任务场景。')
@@ -202,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
             mime = {'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript; charset=utf-8', 'style.css': 'text/css; charset=utf-8'}[name]
             return self.reply(200, (HERE / name).read_bytes(), mime)
         if route == '/api/bootstrap':
-            return self.reply(200, {'token': TOKEN, 'cases': read_json(REPO / 'tests/model-protocol/eval/pilot.json'),
+            return self.reply(200, {'token': TOKEN, 'cases': available_cases(),
                                     'model': ARGS.model_alias, 'upstream': ARGS.upstream})
         if route == '/api/models':
             return self.reply(200, MODELS.snapshot() if MODELS else {'managed': False, 'models': [], 'status': 'external'})
