@@ -608,11 +608,18 @@ impl SharedTurn {
         kind: SessionEventKind,
     ) -> Result<Arc<SessionEvent>, SessionRuntimeError> {
         let draft = SessionEventDraft::new(kind);
+        self.append(&draft).await
+    }
+
+    async fn append(
+        &self,
+        draft: &SessionEventDraft,
+    ) -> Result<Arc<SessionEvent>, SessionRuntimeError> {
         let guard = self.turn.lock().await;
         let turn = guard
             .as_ref()
             .expect("canonical AgentRuntime owns the Session lease until settlement");
-        turn.append(&draft).await
+        turn.append(draft).await
     }
 
     async fn settle(&self) -> Result<TurnCommitSummary, SessionRuntimeError> {
@@ -871,6 +878,55 @@ async fn drive_turn(
         resolved = ResolvedIntent::agent_failed(AgentError::Budget(error), resolved.final_text);
     }
     request.budget.begin_cleanup()?;
+    let mut confirmed_message = None;
+    let mut invalid_message_receipt = false;
+    if admission_matches
+        && matches!(
+            resolved.disposition,
+            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+        )
+    {
+        let draft = SessionEventDraft::new(SessionEventKind::AssistantMessage {
+            version: jingwei_core::event::AssistantMessageVersion::V1,
+            text: resolved.final_text.clone(),
+        })
+        .with_message_id(jingwei_core::MessageId::new());
+        let failure = match shared_turn.append(&draft).await {
+            Ok(event)
+                if event.session_id == session_id
+                    && event.turn_id == turn_id
+                    && &event.event_id == draft.event_id()
+                    && event.message_id.as_ref() == draft.message_id()
+                    && event.generation_id.is_none()
+                    && &event.kind == draft.kind() =>
+            {
+                confirmed_message = Some(event);
+                None
+            }
+            Ok(event) => {
+                invalid_message_receipt = true;
+                Some(jingwei_agent::AssistantMessageCommitError::InvalidReceipt(
+                    event,
+                ))
+            }
+            Err(source) => Some(jingwei_agent::AssistantMessageCommitError::Persistence(
+                source,
+            )),
+        };
+        if let Some(source) = failure {
+            resolved.disposition = TurnDisposition::Failed;
+            resolved.artifact = None;
+            resolved.has_agent_output = false;
+            resolved.drive_failure = Some(DriveFailure::AssistantMessage(Box::new(
+                jingwei_agent::AssistantMessageFailure { draft, source },
+            )));
+            resolved.terminal_error = Some(TerminalErrorFields {
+                code: "assistant_message_recording".into(),
+                message: "canonical assistant message could not be confirmed".into(),
+                retryable: false,
+            });
+        }
+    }
     let finished_budget = match run.prepare_report() {
         Ok(report) => report,
         Err(error) => {
@@ -944,11 +1000,34 @@ async fn drive_turn(
         });
     }
     let terminal_result = shared_turn.append_kind(resolved.terminal_kind()).await;
-    let settlement_result = shared_turn.settle().await;
+    let settlement_result = shared_turn.settle().await.and_then(|summary| {
+        if let Some(expected) = confirmed_message
+            && (summary.turn_id() != &turn_id
+                || summary
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.kind, SessionEventKind::AssistantMessage { .. }))
+                    .count()
+                    != 1
+                || !summary
+                    .events()
+                    .iter()
+                    .any(|event| event == expected.as_ref()))
+        {
+            return Err(SessionRuntimeError::InvalidMessageSettlement {
+                turn_id: turn_id.clone(),
+                expected,
+                events: summary.into_events().into(),
+            });
+        }
+        Ok(summary)
+    });
     // Retain the Task lease until the final Session persistence barrier has returned.
     let _ = run.finish();
 
-    let durable_evidence_error = if durable.is_some() {
+    let durable_evidence_error = if durable.is_some() && invalid_message_receipt {
+        Some(BudgetExecutionError::IncompleteTurn)
+    } else if durable.is_some() {
         match (&report_attempt, &terminal_result, &settlement_result) {
             (TaskRunReportAttempt::Committed { event: report, .. }, Ok(terminal), Ok(summary))
                 if terminal.session_id == session_id

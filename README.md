@@ -222,3 +222,5 @@ Jingwei is dual-licensed under either of:
 - [Apache License, Version 2.0](LICENSE-APACHE)
 
 at your option.
+
+JW-05-a 已接入[完整 assistant 回复](docs/guide/src/assistant-messages.md)的规范持久化；对话投影和上下文预算按后续批次推进。

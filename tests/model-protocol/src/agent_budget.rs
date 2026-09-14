@@ -24,6 +24,8 @@ struct Memory {
     fail_report: AtomicBool,
     report_attempts: Mutex<Vec<Value>>,
     report_gate: Mutex<Option<Arc<ReportGate>>>,
+    fail_message: AtomicBool,
+    message_gate: Mutex<Option<Arc<ReportGate>>>,
 }
 
 struct ReportGate {
@@ -57,6 +59,20 @@ impl SessionPersistence for Memory {
         event: &'a SessionEvent,
     ) -> SessionFuture<'a, Result<PersistAppendOutcome, SessionPersistenceError>> {
         Box::pin(async move {
+            if matches!(event.kind, SessionEventKind::AssistantMessage { .. }) {
+                let gate = self.message_gate.lock().unwrap().clone();
+                if let Some(gate) = gate {
+                    gate.entered.add_permits(1);
+                    gate.release.acquire().await.unwrap().forget();
+                }
+                if self.fail_message.load(Ordering::SeqCst) {
+                    return Err(SessionPersistenceError::Io {
+                        operation: "private_assistant_message",
+                        message: "injected message failure".into(),
+                        certainty: CommitCertainty::DefinitelyNotCommitted,
+                    });
+                }
+            }
             if is_report(event) {
                 self.report_attempts
                     .lock()
@@ -116,6 +132,7 @@ impl Plugin for MemoryPlugin {
 }
 
 struct Probe {
+    histories: Mutex<Vec<Vec<SessionEvent>>>,
     calls: AtomicUsize,
     observations: Mutex<Vec<BudgetReport>>,
     swallowed: AtomicUsize,
@@ -126,6 +143,7 @@ struct Probe {
 impl Default for Probe {
     fn default() -> Self {
         Self {
+            histories: Mutex::new(vec![]),
             calls: AtomicUsize::new(0),
             observations: Mutex::new(Vec::new()),
             swallowed: AtomicUsize::new(0),
@@ -143,6 +161,7 @@ impl Agent for Probe {
     ) -> AgentFuture<'a, Result<AgentTurnOutput, AgentError>> {
         Box::pin(async move {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            self.histories.lock().unwrap().push(input.history.to_vec());
             let budget = ctx
                 .budget()
                 .expect("canonical Agent always has a finite scope");
@@ -209,12 +228,19 @@ impl Agent for Probe {
                         self.release.acquire().await.unwrap().forget();
                     }
                 }
-                "observe" => {}
+                "observe" | "empty" | "cancelled_output" => {}
+                "fail" => return Err(AgentError::failed("probe_failed", "test failure", false)),
                 other => panic!("unknown fixture command {other}"),
             }
             Ok(AgentTurnOutput {
-                final_text: "agent claims completion".into(),
-                outcome: if input.user_message == "ask" {
+                final_text: if input.user_message == "empty" {
+                    String::new()
+                } else {
+                    "agent claims completion".into()
+                },
+                outcome: if input.user_message == "cancelled_output" {
+                    TurnOutcome::Cancelled
+                } else if input.user_message == "ask" {
                     TurnOutcome::WaitingForInput
                 } else {
                     TurnOutcome::Completed
@@ -353,6 +379,11 @@ impl Fixture {
 
 #[derive(Clone, Copy)]
 enum SessionFault {
+    MessageId,
+    MessagePayload,
+    MessageSession,
+    MessageEventId,
+    SettlementOmitMessage,
     AdmissionSession,
     ReportSession,
     ReportTurn,
@@ -420,6 +451,19 @@ impl SessionTurn for FaultySessionTurn {
             // The attempted event is retained, but this faulty authority returns
             // a different acknowledgment. The caller must preserve both facts.
             events.push(event.clone());
+            if matches!(event.kind, SessionEventKind::AssistantMessage { .. }) {
+                match self.state.fault {
+                    SessionFault::MessageId => event.message_id = None,
+                    SessionFault::MessageSession => event.session_id = SessionId::new(),
+                    SessionFault::MessageEventId => event.event_id = jingwei::id::EventId::new(),
+                    SessionFault::MessagePayload => {
+                        if let SessionEventKind::AssistantMessage { text, .. } = &mut event.kind {
+                            *text = "forged".into();
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if is_report(&event) {
                 match self.state.fault {
                     SessionFault::ReportSession => event.session_id = SessionId::new(),
@@ -440,6 +484,7 @@ impl SessionTurn for FaultySessionTurn {
                     | SessionFault::TerminalKind
                     | SessionFault::SettlementOmitReport
                     | SessionFault::SettlementFail => {}
+                    _ => {}
                 }
                 *self.state.returned_report.lock().unwrap() = Some(event.clone());
             }
@@ -463,6 +508,11 @@ impl SessionTurn for FaultySessionTurn {
             let mut events = self.state.events.lock().unwrap().clone();
             if matches!(self.state.fault, SessionFault::SettlementOmitReport) {
                 events.retain(|event| !is_report(event));
+            }
+            if matches!(self.state.fault, SessionFault::SettlementOmitMessage) {
+                events.retain(|event| {
+                    !matches!(event.kind, SessionEventKind::AssistantMessage { .. })
+                });
             }
             Ok(TurnCommitSummary::new(
                 self.admission.turn_id().clone(),

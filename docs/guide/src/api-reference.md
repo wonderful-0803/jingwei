@@ -31,3 +31,5 @@ cargo doc --workspace --all-features --no-deps --locked
 开发源码位于 [GitHub dev 分支](https://github.com/wonderful-0803/jingwei/tree/dev)。实际集成应固定到同一个已取得的提交；分支会继续变化，本地尚未推送的代码也不会出现在远端。
 
 后续正式发布时，再把对应版本的 rustdoc 链接加入本页。不要将本指南可构建理解为完整 v0.1、全部目标设备或故障恢复已验收。
+
+完整回复事件及失败语义见[完整 assistant 回复](assistant-messages.md)，类型通过 jingwei::event、jingwei::agent 和 jingwei::session 导出。

@@ -224,7 +224,30 @@ pub struct SessionEvent {
     pub kind: SessionEventKind,
 }
 
-/// 事件负载。`Custom` 是插件自有事件的通道（信封仍带全量关联 ID）。
+/// Explicit wire version for the runtime-owned complete assistant message.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "u16", into = "u16")]
+pub enum AssistantMessageVersion {
+    V1,
+}
+
+impl TryFrom<u16> for AssistantMessageVersion {
+    type Error = &'static str;
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::V1),
+            _ => Err("unsupported assistant message version"),
+        }
+    }
+}
+impl From<AssistantMessageVersion> for u16 {
+    fn from(_: AssistantMessageVersion) -> Self {
+        1
+    }
+}
+
+/// Canonical event payload. Complete messages replace, rather than extend,
+/// streamed deltas in a conversation projection; the terminal confirms outcome.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionEventKind {
@@ -232,6 +255,10 @@ pub enum SessionEventKind {
         text: String,
     },
     AssistantDelta {
+        text: String,
+    },
+    AssistantMessage {
+        version: AssistantMessageVersion,
         text: String,
     },
     ModelRequest {

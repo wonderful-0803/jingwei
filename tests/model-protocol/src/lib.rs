@@ -8,6 +8,7 @@
 #![doc = include_str!("../../../docs/guide/src/durable-budget.md")]
 #![doc = include_str!("../../../docs/guide/src/budget-grants.md")]
 #![doc = include_str!("../../../docs/guide/src/budget-recovery.md")]
+#![doc = include_str!("../../../docs/guide/src/assistant-messages.md")]
 
 #[cfg(test)]
 mod actions;

@@ -28,6 +28,7 @@ canonical 模型运行时提供有限执行槽、等待队列、总在途容量�
 8. 阅读[持久预算运行](durable-budget.md)，理解正常续跑、异常冻结、回执与部署限制。
 9. 阅读[宿主审计增额](budget-grants.md)，理解安全边界、原子审计和幂等重试。
 10. 阅读[预算候选恢复](budget-recovery.md)，理解写者交接、原始证据与取消时的所有权。
-11. 后续按实现进度补充完整装配入门、上下文、参考 Agent 及完整恢复教程。
+11. 阅读[完整 assistant 回复](assistant-messages.md)，了解 final_text 的规范持久化和失败屏障。
+12. 后续按实现进度补充完整装配入门、上下文、参考 Agent 及完整恢复教程。
 
 本指南使用 VitePress 独立构建，阅读方式见[编写与发布指南](writing-guide.md)。类型和方法签名见 [API 参考](api-reference.md)。完整装配入门、上下文与参考 Agent 教程将随实现补齐。

@@ -10,6 +10,7 @@ use tokio::sync::Barrier;
 
 mod crashes;
 mod grants;
+mod messages;
 mod recovery;
 
 fn binding() -> BudgetIdentity {

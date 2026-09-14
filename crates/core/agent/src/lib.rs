@@ -549,7 +549,21 @@ pub enum DriveFailure {
     StartEnvelope(SessionRuntimeError),
     Agent(AgentError),
     Panicked,
+    AssistantMessage(Box<AssistantMessageFailure>),
     BudgetReport { prior: Option<Box<DriveFailure>> },
+}
+
+/// Exact canonical message attempt retained when persistence is not confirmed.
+#[derive(Debug)]
+pub struct AssistantMessageFailure {
+    pub draft: jingwei_session::SessionEventDraft,
+    pub source: AssistantMessageCommitError,
+}
+
+#[derive(Debug)]
+pub enum AssistantMessageCommitError {
+    Persistence(SessionRuntimeError),
+    InvalidReceipt(Arc<SessionEvent>),
 }
 
 /// The exact report payload and total persistence outcome, before the terminal.

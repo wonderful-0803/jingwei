@@ -58,3 +58,5 @@ JW-04-d2-c2 增加 JSONL 跨进程写者锁和[预算候选恢复](budget-recove
 GNU/Linux 的完整私有测试还需要 `cc`、glibc 动态加载和可用的 `/proc/self/fd`。测试在自己的子进程中使用文件大小限制制造真实 EFBIG，并以私有 LD_PRELOAD 包装器注入同步前/后 EIO；生成的共享库只位于 target/storage-faults，不进入框架依赖或 Cargo 包。缺少编译器或注入未命中时测试明确失败。其他平台仍运行通用契约与重试回归，不声称已验证相同系统调用故障。
 
 JW-04-d2-c3 修复 JSONL 直接精确重试：即使事件字节已可见，也必须重新同步确认才能返回 ReplayedExact；失败继续锁存不确定状态。测试覆盖零字节/部分写入、同步回执失败、写后退出及额外 runtime 中断窗口。进程退出和同步错误注入不等于硬件掉电，工具副作用不确定性仍按[恢复边界](budget-recovery.md)处理。
+
+JW-05-a 增加 [AssistantMessage](assistant-messages.md) V1：canonical AgentRuntime 将完整 final_text 写入 Session，保留 delta 为过程记录。自定义事件消费者需更新穷尽匹配；DriveFailure 新增 AssistantMessage，SessionRuntimeError 新增 InvalidMessageSettlement，错误中保留原始尝试或结算窗口。旧日志不回填，无新依赖。

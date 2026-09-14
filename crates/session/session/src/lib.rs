@@ -190,6 +190,12 @@ impl TurnCommitSummary {
 /// A structured failure from the canonical Session authority.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum SessionRuntimeError {
+    #[error("settled turn {turn_id} does not confirm its canonical assistant message")]
+    InvalidMessageSettlement {
+        turn_id: TurnId,
+        expected: Arc<SessionEvent>,
+        events: Arc<[SessionEvent]>,
+    },
     #[error(transparent)]
     Persistence(#[from] SessionPersistenceError),
     #[error(transparent)]
