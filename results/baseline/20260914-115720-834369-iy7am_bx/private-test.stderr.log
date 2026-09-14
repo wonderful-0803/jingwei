@@ -1,0 +1,4 @@
+   Compiling jingwei-private-protocol-tests v0.0.0 (/home/dd/luxiproject/jingwei/tests/model-protocol)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.95s
+     Running unittests src/lib.rs (target/debug/deps/jingwei_private_protocol_tests-3aec768d5d294ae0)
+   Doc-tests jingwei_private_protocol_tests

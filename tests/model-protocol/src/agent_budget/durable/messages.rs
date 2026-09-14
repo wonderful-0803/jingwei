@@ -24,6 +24,17 @@ async fn final_only_streamed_empty_and_waiting_outputs_have_one_complete_message
         assert_eq!(text, report.final_text());
         assert_eq!(report.events().iter().rev().nth(2), Some(complete[0]));
         assert_report_before_terminal(report.events());
+        let projection = jingwei::context::ConversationProjector::project(
+            &jingwei::context::CanonicalConversationProjector,
+            report.session_id(),
+            report.events(),
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            projection.messages().last(),
+            Some(&ModelMessage::assistant(report.final_text()))
+        );
         if command == "step" {
             assert!(report.events().iter().any(|e| matches!(&e.kind, SessionEventKind::AssistantDelta { text } if text == "step confirmed")));
             assert_ne!(text, "step confirmed");
@@ -232,6 +243,12 @@ fn message_history_child() {
         registry.agent_runtime().unwrap().start_turn(AgentTurnRequest::new(binding().session_id, "probe", "observe")).unwrap().wait().await.unwrap();
         let history = probe.histories.lock().unwrap().clone();
         let complete = messages(&history[0]);
+        let projection = jingwei::context::ConversationProjector::project(
+            &jingwei::context::CanonicalConversationProjector,
+            &binding().session_id, &history[0], Default::default(),
+        ).unwrap();
+        assert_eq!(projection.turns[0].state, jingwei::context::ProjectedTurnState::WaitingForInput);
+        assert_eq!(projection.messages().count(), 2);
         assert_eq!(complete.len(), 1);
         assert!(matches!(&complete[0].kind, SessionEventKind::AssistantMessage { text, .. } if text == "agent claims completion"));
         registry.shutdown().await.unwrap();

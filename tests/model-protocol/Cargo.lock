@@ -698,6 +698,7 @@ dependencies = [
  "jingwei-action",
  "jingwei-agent",
  "jingwei-budget",
+ "jingwei-context",
  "jingwei-core",
  "jingwei-llm",
  "jingwei-plugin",
@@ -771,6 +772,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "jingwei-context"
+version = "0.1.0"
+dependencies = [
+ "jingwei-core",
+ "jingwei-session",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

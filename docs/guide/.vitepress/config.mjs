@@ -57,6 +57,7 @@ export default defineConfig({
           { text: '宿主审计增额', link: '/budget-grants' },
           { text: '预算候选恢复', link: '/budget-recovery' },
           { text: '完整 assistant 回复', link: '/assistant-messages' },
+          { text: '确定性对话投影', link: '/conversation-projection' },
         ],
       },
       {

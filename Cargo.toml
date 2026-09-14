@@ -7,6 +7,7 @@ members = [
     "crates/budget/file",
     "crates/core/agent",
     "crates/agent/action",
+    "crates/context/context",
     "crates/llm/llm",
     "crates/llm/runtime",
     "crates/llm/openai",
@@ -51,6 +52,7 @@ jingwei-budget = { path = "crates/core/budget", version = "=0.1.0" }
 jingwei-budget-file = { path = "crates/budget/file", version = "=0.1.0" }
 jingwei-agent = { path = "crates/core/agent", version = "=0.1.0" }
 jingwei-action = { path = "crates/agent/action", version = "=0.1.0" }
+jingwei-context = { path = "crates/context/context", version = "=0.1.0" }
 jingwei-llm = { path = "crates/llm/llm", version = "=0.1.0" }
 jingwei-llm-runtime = { path = "crates/llm/runtime", version = "=0.1.0" }
 jingwei-openai = { path = "crates/llm/openai", version = "=0.1.0" }

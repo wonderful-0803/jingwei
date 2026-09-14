@@ -2,7 +2,7 @@
 
 ## 当前源码快照
 
-workspace 目前由 18 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
+workspace 目前由 19 个 crate 组成，包版本暂为 0.1.0；这是开发中的 v0.1 功能里程碑，不表示这些新增功能已经发布到 crates.io。jingwei-action 是独立可选组件，facade 的默认 feature 不启用它；共享内存账本 jingwei-budget 通过 facade 的 budget 模块访问。
 
 Rust 开发版本固定为 1.96.0，最低支持声明同步为 1.96。此前的 1.85 声明与源码使用的语法不符；本轮基于真实构建结果收敛声明，未承诺更旧工具链。
 
@@ -60,3 +60,5 @@ GNU/Linux 的完整私有测试还需要 `cc`、glibc 动态加载和可用的 `
 JW-04-d2-c3 修复 JSONL 直接精确重试：即使事件字节已可见，也必须重新同步确认才能返回 ReplayedExact；失败继续锁存不确定状态。测试覆盖零字节/部分写入、同步回执失败、写后退出及额外 runtime 中断窗口。进程退出和同步错误注入不等于硬件掉电，工具副作用不确定性仍按[恢复边界](budget-recovery.md)处理。
 
 JW-05-a 增加 [AssistantMessage](assistant-messages.md) V1：canonical AgentRuntime 将完整 final_text 写入 Session，保留 delta 为过程记录。自定义事件消费者需更新穷尽匹配；DriveFailure 新增 AssistantMessage，SessionRuntimeError 新增 InvalidMessageSettlement，错误中保留原始尝试或结算窗口。旧日志不回填，无新依赖。
+
+JW-05-b 增加可选 jingwei-context（facade 的 context feature 默认关闭），提供[确定性对话投影](conversation-projection.md)。仅依赖现有 core/session 契约和 serde/serde_json/thiserror，不新增第三方依赖或 IO runtime；输入必须是完整物理日志，旧回复缺失需显式策略。

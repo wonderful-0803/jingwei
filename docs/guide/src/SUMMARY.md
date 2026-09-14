@@ -11,6 +11,7 @@
 - [宿主审计增额](budget-grants.md)
 - [预算候选恢复](budget-recovery.md)
 - [完整 assistant 回复](assistant-messages.md)
+- [确定性对话投影](conversation-projection.md)
 - [开发环境与兼容性](development.md)
 - [API 参考](api-reference.md)
 - [编写与发布指南](writing-guide.md)

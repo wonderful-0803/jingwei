@@ -9,9 +9,13 @@
 #![doc = include_str!("../../../docs/guide/src/budget-grants.md")]
 #![doc = include_str!("../../../docs/guide/src/budget-recovery.md")]
 #![doc = include_str!("../../../docs/guide/src/assistant-messages.md")]
+#![doc = include_str!("../../../docs/guide/src/conversation-projection.md")]
 
 #[cfg(test)]
 mod actions;
+
+#[cfg(test)]
+mod projection;
 
 #[cfg(test)]
 mod budget;
