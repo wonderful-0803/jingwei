@@ -6,3 +6,5 @@ target/
 
 # Private model evaluation outputs (task definitions remain tracked).
 /results/evaluations/
+# Local Python web/debug tool caches.
+/tests/harness-ui/__pycache__/
