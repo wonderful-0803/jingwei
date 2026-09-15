@@ -316,6 +316,11 @@ pub enum ModelRuntimeError {
 /// Controlled model call failure exposed through [`ModelGateway`].
 #[derive(Clone, thiserror::Error)]
 pub enum ModelGatewayError {
+    /// Complete response rejected by runtime schema validation after size/shape
+    /// checks. Diagnostic data only: never a successful executable response.
+    /// Canonical ModelResult remains a protocol failure; Debug hides this body.
+    #[error("model response failed schema validation")]
+    SchemaRejected { response: Box<GenerationResponse> },
     #[error(transparent)]
     Model(#[from] LlmError),
     #[error(transparent)]
@@ -330,6 +335,7 @@ impl fmt::Debug for ModelGatewayError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = formatter.debug_struct("ModelGatewayError");
         match self {
+            Self::SchemaRejected { .. } => debug.field("kind", &"model_schema_rejected"),
             Self::Runtime(ModelRuntimeError::Budget(error)) => {
                 debug.field("kind", &"model_budget").field("error", error)
             }

@@ -608,11 +608,18 @@ impl SharedTurn {
         kind: SessionEventKind,
     ) -> Result<Arc<SessionEvent>, SessionRuntimeError> {
         let draft = SessionEventDraft::new(kind);
+        self.append(&draft).await
+    }
+
+    async fn append(
+        &self,
+        draft: &SessionEventDraft,
+    ) -> Result<Arc<SessionEvent>, SessionRuntimeError> {
         let guard = self.turn.lock().await;
         let turn = guard
             .as_ref()
             .expect("canonical AgentRuntime owns the Session lease until settlement");
-        turn.append(&draft).await
+        turn.append(draft).await
     }
 
     async fn settle(&self) -> Result<TurnCommitSummary, SessionRuntimeError> {
@@ -804,7 +811,9 @@ async fn drive_turn(
     if request.cancellation.token.is_cancelled()
         && matches!(
             resolved.disposition,
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
         )
     {
         resolved = ResolvedIntent::cancelled(lock_unpoisoned(&partial_text).clone());
@@ -817,9 +826,9 @@ async fn drive_turn(
     let mut model_failure: Option<ModelTurnFailure> = None;
     if let Some(bound) = model_turn {
         let mode = match resolved.disposition {
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput => {
-                ModelFinishMode::Graceful
-            }
+            TurnDisposition::Completed
+            | TurnDisposition::WaitingForInput
+            | TurnDisposition::Checkpointed => ModelFinishMode::Graceful,
             TurnDisposition::Cancelled | TurnDisposition::Failed => ModelFinishMode::Cancel,
         };
         model_failure = bound.finish(mode).await.err();
@@ -828,7 +837,9 @@ async fn drive_turn(
     if request.cancellation.token.is_cancelled()
         && matches!(
             resolved.disposition,
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
         )
     {
         resolved = ResolvedIntent::cancelled(lock_unpoisoned(&partial_text).clone());
@@ -837,9 +848,12 @@ async fn drive_turn(
     let mut tool_failure: Option<ToolTurnFailure> = None;
     if let Some(bound) = tool_turn {
         let mode = match (resolved.disposition, model_failure.is_none()) {
-            (TurnDisposition::Completed | TurnDisposition::WaitingForInput, true) => {
-                ToolFinishMode::Graceful
-            }
+            (
+                TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed,
+                true,
+            ) => ToolFinishMode::Graceful,
             _ => ToolFinishMode::Cancel,
         };
         tool_failure = bound.finish(mode).await.err();
@@ -848,7 +862,9 @@ async fn drive_turn(
     if request.cancellation.token.is_cancelled()
         && matches!(
             resolved.disposition,
-            TurnDisposition::Completed | TurnDisposition::WaitingForInput
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
         )
     {
         resolved = ResolvedIntent::cancelled(lock_unpoisoned(&partial_text).clone());
@@ -865,12 +881,64 @@ async fn drive_turn(
             resolved.disposition,
             TurnDisposition::Completed
                 | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
                 | TurnDisposition::Cancelled
         )
     {
         resolved = ResolvedIntent::agent_failed(AgentError::Budget(error), resolved.final_text);
     }
     request.budget.begin_cleanup()?;
+    let mut confirmed_message = None;
+    let mut invalid_message_receipt = false;
+    if admission_matches
+        && matches!(
+            resolved.disposition,
+            TurnDisposition::Completed
+                | TurnDisposition::WaitingForInput
+                | TurnDisposition::Checkpointed
+        )
+    {
+        let draft = SessionEventDraft::new(SessionEventKind::AssistantMessage {
+            version: jingwei_core::event::AssistantMessageVersion::V1,
+            text: resolved.final_text.clone(),
+        })
+        .with_message_id(jingwei_core::MessageId::new());
+        let failure = match shared_turn.append(&draft).await {
+            Ok(event)
+                if event.session_id == session_id
+                    && event.turn_id == turn_id
+                    && &event.event_id == draft.event_id()
+                    && event.message_id.as_ref() == draft.message_id()
+                    && event.generation_id.is_none()
+                    && &event.kind == draft.kind() =>
+            {
+                confirmed_message = Some(event);
+                None
+            }
+            Ok(event) => {
+                invalid_message_receipt = true;
+                Some(jingwei_agent::AssistantMessageCommitError::InvalidReceipt(
+                    event,
+                ))
+            }
+            Err(source) => Some(jingwei_agent::AssistantMessageCommitError::Persistence(
+                source,
+            )),
+        };
+        if let Some(source) = failure {
+            resolved.disposition = TurnDisposition::Failed;
+            resolved.artifact = None;
+            resolved.has_agent_output = false;
+            resolved.drive_failure = Some(DriveFailure::AssistantMessage(Box::new(
+                jingwei_agent::AssistantMessageFailure { draft, source },
+            )));
+            resolved.terminal_error = Some(TerminalErrorFields {
+                code: "assistant_message_recording".into(),
+                message: "canonical assistant message could not be confirmed".into(),
+                retryable: false,
+            });
+        }
+    }
     let finished_budget = match run.prepare_report() {
         Ok(report) => report,
         Err(error) => {
@@ -887,6 +955,7 @@ async fn drive_turn(
         match resolved.disposition {
             TurnDisposition::Completed => TaskRunStop::Completed,
             TurnDisposition::WaitingForInput => TaskRunStop::WaitingForInput,
+            TurnDisposition::Checkpointed => TaskRunStop::Checkpointed,
             TurnDisposition::Cancelled => match request.cancellation.reason() {
                 CancelReason::RuntimeStopping => TaskRunStop::RuntimeStopping,
                 _ => TaskRunStop::CallerCancelled,
@@ -944,11 +1013,34 @@ async fn drive_turn(
         });
     }
     let terminal_result = shared_turn.append_kind(resolved.terminal_kind()).await;
-    let settlement_result = shared_turn.settle().await;
+    let settlement_result = shared_turn.settle().await.and_then(|summary| {
+        if let Some(expected) = confirmed_message
+            && (summary.turn_id() != &turn_id
+                || summary
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.kind, SessionEventKind::AssistantMessage { .. }))
+                    .count()
+                    != 1
+                || !summary
+                    .events()
+                    .iter()
+                    .any(|event| event == expected.as_ref()))
+        {
+            return Err(SessionRuntimeError::InvalidMessageSettlement {
+                turn_id: turn_id.clone(),
+                expected,
+                events: summary.into_events().into(),
+            });
+        }
+        Ok(summary)
+    });
     // Retain the Task lease until the final Session persistence barrier has returned.
     let _ = run.finish();
 
-    let durable_evidence_error = if durable.is_some() {
+    let durable_evidence_error = if durable.is_some() && invalid_message_receipt {
+        Some(BudgetExecutionError::IncompleteTurn)
+    } else if durable.is_some() {
         match (&report_attempt, &terminal_result, &settlement_result) {
             (TaskRunReportAttempt::Committed { event: report, .. }, Ok(terminal), Ok(summary))
                 if terminal.session_id == session_id
@@ -1310,6 +1402,10 @@ impl ResolvedIntent {
                 status: DoneStatus::Completed,
                 artifact: self.artifact.clone(),
             },
+            TurnDisposition::Checkpointed => SessionEventKind::Done {
+                status: DoneStatus::Checkpointed,
+                artifact: self.artifact.clone(),
+            },
             TurnDisposition::WaitingForInput => SessionEventKind::Done {
                 status: DoneStatus::WaitingForInput,
                 artifact: self.artifact.clone(),
@@ -1417,7 +1513,8 @@ fn terminal_fields_for_model_error(error: &ModelGatewayError) -> TerminalErrorFi
         ModelGatewayError::Model(LlmError::StreamParse(_)) => {
             ("model_stream_parse", "model stream parsing failed", false)
         }
-        ModelGatewayError::Model(LlmError::Protocol(_)) => {
+        ModelGatewayError::SchemaRejected { .. }
+        | ModelGatewayError::Model(LlmError::Protocol(_)) => {
             ("model_protocol", "model protocol validation failed", false)
         }
         ModelGatewayError::Model(LlmError::Cancelled) => {

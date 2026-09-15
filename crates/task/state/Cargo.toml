@@ -1,5 +1,5 @@
 [package]
-name = "jingwei-action"
+name = "jingwei-task"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,18 +10,12 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 exclude.workspace = true
-documentation = "https://docs.rs/jingwei-action"
-description = "Optional model action protocols and controlled single-step execution for Jingwei"
-
-[features]
-context = ["dep:jingwei-context"]
+documentation = "https://docs.rs/jingwei-task"
+description = "Versioned task state and conservative checkpoint validation"
 
 [dependencies]
-jingwei-context = { workspace = true, optional = true }
 jingwei-core.workspace = true
-jingwei-llm.workspace = true
-jingwei-tool.workspace = true
-jsonschema.workspace = true
+jingwei-budget.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
