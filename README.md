@@ -21,9 +21,9 @@ Jingwei crate 固定到同一个不可变提交，而不要让它们分别跟随
 
 ```toml
 [dependencies]
-jingwei = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
-jingwei-standard = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
-jingwei-journal-jsonl = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
+jingwei = { git = "https://github.com/wonderful-0803/jingwei", rev = "916320936225f2a57e56640318d36b42a2f4436b" }
+jingwei-standard = { git = "https://github.com/wonderful-0803/jingwei", rev = "916320936225f2a57e56640318d36b42a2f4436b" }
+jingwei-journal-jsonl = { git = "https://github.com/wonderful-0803/jingwei", rev = "916320936225f2a57e56640318d36b42a2f4436b" }
 
 # 宿主应用拥有自己的 async runtime。
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -126,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```toml
 [dependencies]
-jingwei-openai = { git = "https://github.com/wonderful-0803/jingwei", rev = "3f5f2a8b66567abf5f69508b084e8921d09e5ed5" }
+jingwei-openai = { git = "https://github.com/wonderful-0803/jingwei", rev = "916320936225f2a57e56640318d36b42a2f4436b" }
 ```
 
 然后在上面的 builder 链中加入并显式选择 provider 与 canonical LLM runtime：
