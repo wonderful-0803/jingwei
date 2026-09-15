@@ -804,7 +804,9 @@ impl PluginRegistry {
             .map(|entry| Arc::clone(&entry.value))
     }
 
-    fn session_persistence(&self) -> Option<Arc<dyn SessionPersistence>> {
+    /// Trusted host access to the selected provider; retain its ownership through
+    /// coordinated Task execution and state publication.
+    pub fn session_persistence(&self) -> Option<Arc<dyn SessionPersistence>> {
         self.session_persistence
             .as_ref()
             .map(|entry| Arc::clone(&entry.value))

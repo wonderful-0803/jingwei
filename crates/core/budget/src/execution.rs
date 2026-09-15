@@ -279,6 +279,12 @@ fn validate_closed_tail(
                 ..
             }
         ) | (
+            TaskRunStop::Checkpointed,
+            SessionEventKind::Done {
+                status: DoneStatus::Checkpointed,
+                ..
+            }
+        ) | (
             TaskRunStop::CallerCancelled | TaskRunStop::RuntimeStopping,
             SessionEventKind::Done {
                 status: DoneStatus::Cancelled,

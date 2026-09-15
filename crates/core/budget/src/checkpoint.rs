@@ -15,6 +15,7 @@ pub enum BudgetCheckpointVersion {
     V1,
     V2,
     V3,
+    V4,
 }
 
 impl TryFrom<u16> for BudgetCheckpointVersion {
@@ -24,6 +25,7 @@ impl TryFrom<u16> for BudgetCheckpointVersion {
             1 => Ok(Self::V1),
             2 => Ok(Self::V2),
             3 => Ok(Self::V3),
+            4 => Ok(Self::V4),
             _ => Err("unsupported budget checkpoint version"),
         }
     }
@@ -35,6 +37,7 @@ impl From<BudgetCheckpointVersion> for u16 {
             BudgetCheckpointVersion::V1 => 1,
             BudgetCheckpointVersion::V2 => 2,
             BudgetCheckpointVersion::V3 => 3,
+            BudgetCheckpointVersion::V4 => 4,
         }
     }
 }
@@ -68,17 +71,19 @@ impl From<&SessionEvent> for BudgetEventCursor {
 pub struct BudgetCheckpoint {
     pub(crate) version: BudgetCheckpointVersion,
     pub(crate) revision: u64,
-    next_id: u64,
+    pub(crate) next_id: u64,
     anchor: Option<BudgetEventCursor>,
     pub(crate) report: BudgetReport,
     run_id: Option<u64>,
     recovery_frozen: bool,
-    /// V2/V3 execution claim. V1 images remain readable but cannot carry a claim.
+    /// V2+ execution claim. V1 images remain readable but cannot carry a claim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     execution_id: Option<BudgetExecutionId>,
     /// V3 bounded, append-only host grants. Retained across every subsequent run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) grants: Vec<BudgetGrantRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) recoveries: Vec<BudgetRecoveryRecord>,
 }
 
 /// Host expectations obtained independently from trusted storage and log checks.
@@ -107,6 +112,39 @@ pub enum BudgetCheckpointError {
 }
 
 impl BudgetCheckpoint {
+    pub(crate) fn validate_recovery_evidence(
+        record: &BudgetRecoveryRecord,
+    ) -> Result<(), BudgetCheckpointError> {
+        Self {
+            version: BudgetCheckpointVersion::V3,
+            revision: record
+                .request
+                .source_revision
+                .checked_add(1)
+                .ok_or(BudgetCheckpointError::RevisionExhausted)?,
+            next_id: record.candidate_next_id,
+            anchor: record.confirmed_anchor.clone(),
+            report: record.candidate_report.clone(),
+            run_id: None,
+            recovery_frozen: false,
+            execution_id: None,
+            grants: vec![],
+            recoveries: vec![],
+        }
+        .validate()
+    }
+    /// True for an execution claim, frozen image, open run or pending reservations.
+    /// False does not establish freshness, permissions or authority to resume.
+    pub fn requires_recovery(&self) -> bool {
+        !self.is_quiescent()
+    }
+
+    /// Verify an independently confirmed full Session log without acquiring
+    /// execution ownership or establishing storage freshness.
+    pub fn verify_history(&self, history: &[SessionEvent]) -> Result<(), BudgetExecutionError> {
+        super::execution::verify_checkpoint_history(self, history)
+    }
+
     pub fn execution_id(&self) -> Option<&BudgetExecutionId> {
         self.execution_id.as_ref()
     }
@@ -125,7 +163,11 @@ impl BudgetCheckpoint {
             ));
         }
         let mut claim = self.clone();
-        claim.version = BudgetCheckpointVersion::V3;
+        claim.version = if self.recoveries.is_empty() {
+            BudgetCheckpointVersion::V3
+        } else {
+            BudgetCheckpointVersion::V4
+        };
         claim.revision = claim
             .revision
             .checked_add(1)
@@ -182,6 +224,7 @@ impl BudgetCheckpoint {
             return Err(Invalid("invalid durable execution claim"));
         }
         self.validate_grants()?;
+        self.validate_recoveries()?;
         let report = &self.report;
         let identity = &report.identity;
         if self.revision == 0 {
@@ -337,7 +380,11 @@ impl TaskBudget {
         }
         self.0.tick(&mut state);
         let checkpoint = BudgetCheckpoint {
-            version: BudgetCheckpointVersion::V3,
+            version: if state.recoveries.is_empty() {
+                BudgetCheckpointVersion::V3
+            } else {
+                BudgetCheckpointVersion::V4
+            },
             revision: state
                 .checkpoint_revision
                 .checked_add(1)
@@ -349,6 +396,7 @@ impl TaskBudget {
             recovery_frozen: state.recovery_frozen,
             execution_id: None,
             grants: state.grants.clone(),
+            recoveries: state.recoveries.clone(),
         };
         checkpoint.validate()?;
         state.sealed = true;
@@ -417,6 +465,7 @@ impl TaskBudget {
                 recovery_frozen: frozen,
                 checkpoint_revision: checkpoint.revision,
                 grants: checkpoint.grants,
+                recoveries: checkpoint.recoveries,
                 charged: report.charged,
                 reserved: report.reserved,
                 usage: report.usage,
@@ -490,4 +539,22 @@ pub trait BudgetCheckpointStore: Send + Sync {
         expected_revision: u64,
         checkpoint: &'a BudgetCheckpoint,
     ) -> BudgetCheckpointFuture<'a, Result<BudgetCheckpointCommit, BudgetCheckpointStoreError>>;
+
+    /// Retain ownership through all accepted IO, even if the caller cancels.
+    /// Implementations that detach work must move the guard into that worker.
+    /// Default refusal prevents unsupported stores from silently losing ownership.
+    fn compare_exchange_guarded<'a>(
+        &'a self,
+        _expected_revision: u64,
+        _checkpoint: &'a BudgetCheckpoint,
+        _guard: Arc<dyn Send + Sync>,
+    ) -> BudgetCheckpointFuture<'a, Result<BudgetCheckpointCommit, BudgetCheckpointStoreError>>
+    {
+        Box::pin(async {
+            Err(
+                BudgetCheckpointError::Invalid("store does not support owned recovery commits")
+                    .into(),
+            )
+        })
+    }
 }

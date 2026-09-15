@@ -11,6 +11,8 @@ pub mod event;
 pub mod id;
 pub mod model;
 pub mod observer;
+pub mod tool_operation;
+pub use tool_operation::*;
 
 pub use cancellation::{CancellationFuture, CancellationSignal};
 pub use capability::CapabilityId;

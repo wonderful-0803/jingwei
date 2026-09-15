@@ -2,6 +2,24 @@
 //!
 //! 应用优先依赖本 crate；adapter 和框架内部实现继续依赖最窄的能力 crate。
 
+/// Optional versioned Task state; no automatic recovery or runtime installation.
+#[cfg(feature = "task-state")]
+pub mod task {
+    pub use jingwei_task::*;
+}
+
+/// Optional bounded reference Agent, explicitly registered by the host.
+#[cfg(feature = "reference-agent")]
+pub mod reference {
+    pub use jingwei_reference_agent::*;
+}
+
+/// Optional deterministic conversation projection, independent of runtime IO.
+#[cfg(feature = "context")]
+pub mod context {
+    pub use jingwei_context::*;
+}
+
 /// Optional single-decision action protocols and controlled execution.
 #[cfg(feature = "actions")]
 pub mod action {

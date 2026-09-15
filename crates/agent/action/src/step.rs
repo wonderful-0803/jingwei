@@ -213,11 +213,18 @@ impl ActionStep {
         if cancellation.is_cancelled() {
             return Err((ActionStepFailure::Cancelled, None));
         }
-        validation::validate_response(&request, &response).map_err(validation)?;
         if response.tool_calls.len() > 1 {
             return Err(validation(ActionError::MultipleActions));
         }
         let action = self.protocol.parse(&response).map_err(validation)?;
+        // Classify an unavailable tool before generic JSON-schema rejection.
+        // A correction driver must never treat an authorization failure as syntax.
+        if let AgentAction::CallTool { name, .. } = &action
+            && !validators.contains_key(name)
+        {
+            return Err(validation(ActionError::ToolNotVisible));
+        }
+        validation::validate_response(&request, &response).map_err(validation)?;
         let execution = match &action {
             AgentAction::CallTool {
                 name,

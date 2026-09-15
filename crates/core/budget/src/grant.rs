@@ -159,7 +159,11 @@ pub async fn grant_budget(
         old_stop: base.report.stop,
     };
     let mut checkpoint = base.clone();
-    checkpoint.version = BudgetCheckpointVersion::V3;
+    checkpoint.version = if base.recoveries.is_empty() {
+        BudgetCheckpointVersion::V3
+    } else {
+        BudgetCheckpointVersion::V4
+    };
     checkpoint.revision = base
         .revision()
         .checked_add(1)
@@ -196,6 +200,7 @@ impl BudgetCheckpoint {
     ) -> Result<(), BudgetCheckpointError> {
         use BudgetCheckpointError::Invalid;
         self.validate_successor(previous.map_or(0, Self::revision))?;
+        self.validate_recovery_transition(previous)?;
         let Some(previous) = previous else {
             return if self.grants.is_empty() {
                 Ok(())
@@ -226,7 +231,11 @@ impl BudgetCheckpoint {
                     return Err(Invalid("grant does not describe the quiescent predecessor"));
                 }
                 let mut expected = previous.clone();
-                expected.version = BudgetCheckpointVersion::V3;
+                expected.version = if previous.recoveries.is_empty() {
+                    BudgetCheckpointVersion::V3
+                } else {
+                    BudgetCheckpointVersion::V4
+                };
                 expected.revision = self.revision;
                 expected.report.limits = record.request.new_limits;
                 expected.report.stop = None;
@@ -244,7 +253,11 @@ impl BudgetCheckpoint {
 
     pub(crate) fn validate_grants(&self) -> Result<(), BudgetCheckpointError> {
         use BudgetCheckpointError::Invalid;
-        if (!self.grants.is_empty() && self.version != BudgetCheckpointVersion::V3)
+        if (!self.grants.is_empty()
+            && !matches!(
+                self.version,
+                BudgetCheckpointVersion::V3 | BudgetCheckpointVersion::V4
+            ))
             || self.grants.len() > MAX_BUDGET_GRANTS
         {
             return Err(Invalid("invalid grant version or count"));

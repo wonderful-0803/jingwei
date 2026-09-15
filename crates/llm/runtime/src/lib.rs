@@ -933,6 +933,14 @@ async fn run_complete(
             successful_result(&request, completion.clone()),
             Ok(completion),
         ),
+        CompleteResolution::SchemaRejected(response) => (
+            failed_result(
+                &request,
+                &LlmError::Protocol(jingwei_llm::ModelProtocolError::SchemaValidation),
+                GenerationPartial::default(),
+            ),
+            Err(ModelGatewayError::SchemaRejected { response }),
+        ),
         CompleteResolution::ModelFailed(error) => (
             failed_result(&request, &error, GenerationPartial::default()),
             Err(error.into()),
@@ -959,6 +967,7 @@ async fn run_complete(
 }
 
 enum CompleteResolution {
+    SchemaRejected(Box<GenerationResponse>),
     Succeeded(GenerationResponse),
     ModelFailed(LlmError),
     Stopped(ModelJobStopReason),
@@ -1013,6 +1022,9 @@ async fn resolve_complete(
             job.observe_usage(&completion.usage);
             match validation::response(&request.input, &completion, request.options.limits) {
                 Ok(()) => CompleteResolution::Succeeded(completion),
+                Err(LlmError::Protocol(jingwei_llm::ModelProtocolError::SchemaValidation)) => {
+                    CompleteResolution::SchemaRejected(Box::new(completion))
+                }
                 Err(error) => CompleteResolution::ModelFailed(error),
             }
         }

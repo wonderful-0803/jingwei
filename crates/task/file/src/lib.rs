@@ -1,4 +1,4 @@
-//! Opt-in local-file checkpoint storage, not execution ownership or automatic recovery.
+//! Opt-in local-file task snapshot storage, not execution ownership or automatic recovery.
 //!
 //! The host provisions one durable, regular file per Task binding before opening
 //! the store. An empty existing file means no checkpoint; a missing file is an
@@ -13,36 +13,35 @@
 //! success; torn or invalid logs fail closed and are never repaired implicitly.
 //! Operations require Tokio and run on its blocking pool. Once admitted, dropping
 //! an awaiting future does not cancel its worker. Keep the runtime alive and call
-//! [`FileBudgetCheckpointStore::close`] to drain accepted work.
+//! [`FileTaskStateStore::close`] to drain accepted work.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use jingwei_budget::{
-    BudgetCheckpoint, BudgetCheckpointCommit, BudgetCheckpointCommitCertainty,
-    BudgetCheckpointError, BudgetCheckpointFuture, BudgetCheckpointStore,
-    BudgetCheckpointStoreError, BudgetIdentity,
+use jingwei_task::{
+    TaskCommitCertainty, TaskIdentity, TaskSnapshot, TaskStateError, TaskStateFuture,
+    TaskStateStore, TaskStoreError, TaskWriteOutcome,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
-type Result<T> = std::result::Result<T, BudgetCheckpointStoreError>;
+type Result<T> = std::result::Result<T, TaskStoreError>;
 
 /// Finite per-store IO admission and on-disk JSONL limits. Record bytes include
 /// the final newline. These are not a bound on the whole process's memory.
 #[derive(Clone, Copy, Debug)]
-pub struct FileBudgetCheckpointConfig {
+pub struct FileTaskStateConfig {
     pub max_record_bytes: usize,
     pub max_log_bytes: usize,
     pub max_io_jobs: usize,
 }
 
-impl Default for FileBudgetCheckpointConfig {
+impl Default for FileTaskStateConfig {
     fn default() -> Self {
         Self {
-            max_record_bytes: 8 * 1024 * 1024,
+            max_record_bytes: 1024 * 1024,
             max_log_bytes: 64 * 1024 * 1024,
             max_io_jobs: 4,
         }
@@ -50,7 +49,7 @@ impl Default for FileBudgetCheckpointConfig {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FileBudgetCheckpointStatus {
+pub struct FileTaskStateStatus {
     pub accepting: bool,
     pub in_flight: usize,
     pub max_io_jobs: usize,
@@ -63,7 +62,7 @@ struct Control {
 
 struct Inner {
     path: PathBuf,
-    config: FileBudgetCheckpointConfig,
+    config: FileTaskStateConfig,
     control: Mutex<Control>,
     drained: Notify,
 }
@@ -77,10 +76,10 @@ impl Inner {
     fn admit(self: &Arc<Self>) -> Result<Permit> {
         let mut control = self.control();
         if !control.accepting {
-            return Err(BudgetCheckpointStoreError::Closed);
+            return Err(TaskStoreError::Closed);
         }
         if control.in_flight >= self.config.max_io_jobs {
-            return Err(BudgetCheckpointStoreError::Busy);
+            return Err(TaskStoreError::Busy);
         }
         control.in_flight += 1;
         Ok(Permit(Arc::clone(self)))
@@ -96,7 +95,7 @@ impl Inner {
             return Err(not_committed("checkpoint path is not a regular file"));
         }
         file.try_lock().map_err(|error| match error {
-            TryLockError::WouldBlock => BudgetCheckpointStoreError::Busy,
+            TryLockError::WouldBlock => TaskStoreError::Busy,
             TryLockError::Error(error) => not_committed(error),
         })?;
         Ok(LockedFile(file))
@@ -105,8 +104,8 @@ impl Inner {
     fn read_latest(
         &self,
         file: &mut File,
-        identity: &BudgetIdentity,
-    ) -> Result<(Option<BudgetCheckpoint>, usize)> {
+        identity: &TaskIdentity,
+    ) -> Result<(Option<TaskSnapshot>, usize)> {
         let limit = self.config.max_log_bytes;
         if file.metadata().map_err(not_committed)?.len() > limit as u64 {
             return Err(exceeded("log bytes", limit));
@@ -118,7 +117,7 @@ impl Inner {
         if bytes.len() > limit {
             return Err(exceeded("log bytes", limit));
         }
-        let mut latest: Option<BudgetCheckpoint> = None;
+        let mut latest: Option<TaskSnapshot> = None;
         for (index, line) in bytes.split_inclusive(|byte| *byte == b'\n').enumerate() {
             let record = index as u64 + 1;
             if line.len() > self.config.max_record_bytes {
@@ -135,11 +134,9 @@ impl Inner {
             if entry.version != 1 {
                 return Err(corrupt(record, "unsupported checkpoint log version"));
             }
-            entry
-                .checkpoint
-                .validate_successor(entry.expected_revision)
+            validate_revision(entry.expected_revision, &entry.checkpoint)
                 .map_err(|error| corrupt(record, error))?;
-            let previous = latest.as_ref().map_or(0, BudgetCheckpoint::revision);
+            let previous = latest.as_ref().map_or(0, TaskSnapshot::revision);
             if entry.expected_revision != previous {
                 return Err(corrupt(record, "non-contiguous revision chain"));
             }
@@ -150,7 +147,7 @@ impl Inner {
             }
             entry
                 .checkpoint
-                .validate_transition(latest.as_ref())
+                .validate_successor(latest.as_ref())
                 .map_err(|error| corrupt(record, error))?;
             latest = Some(entry.checkpoint);
         }
@@ -158,7 +155,7 @@ impl Inner {
             .as_ref()
             .is_some_and(|checkpoint| checkpoint.identity() != identity)
         {
-            return Err(BudgetCheckpointError::IdentityMismatch.into());
+            return Err(TaskStateError::IdentityMismatch.into());
         }
         Ok((latest, bytes.len()))
     }
@@ -178,12 +175,12 @@ impl Drop for Permit {
 /// Clones share admission/close state. Independent instances still coordinate
 /// their file operations through the OS lock, but do not share job limits.
 #[derive(Clone)]
-pub struct FileBudgetCheckpointStore(Arc<Inner>);
+pub struct FileTaskStateStore(Arc<Inner>);
 
-impl FileBudgetCheckpointStore {
+impl FileTaskStateStore {
     /// Synchronously resolve an existing host-provisioned file. Does not create,
     /// truncate, validate log contents or acquire execution ownership.
-    pub fn open(path: impl AsRef<Path>, config: FileBudgetCheckpointConfig) -> Result<Self> {
+    pub fn open(path: impl AsRef<Path>, config: FileTaskStateConfig) -> Result<Self> {
         if config.max_record_bytes == 0
             || config.max_log_bytes < config.max_record_bytes
             || config.max_log_bytes == usize::MAX
@@ -206,9 +203,9 @@ impl FileBudgetCheckpointStore {
         })))
     }
 
-    pub fn status(&self) -> FileBudgetCheckpointStatus {
+    pub fn status(&self) -> FileTaskStateStatus {
         let control = self.0.control();
-        FileBudgetCheckpointStatus {
+        FileTaskStateStatus {
             accepting: control.accepting,
             in_flight: control.in_flight,
             max_io_jobs: self.0.config.max_io_jobs,
@@ -248,12 +245,13 @@ impl FileBudgetCheckpointStore {
     }
 }
 
-impl BudgetCheckpointStore for FileBudgetCheckpointStore {
+impl TaskStateStore for FileTaskStateStore {
     fn load<'a>(
         &'a self,
-        identity: &'a BudgetIdentity,
-    ) -> BudgetCheckpointFuture<'a, Result<Option<BudgetCheckpoint>>> {
+        identity: &'a TaskIdentity,
+    ) -> TaskStateFuture<'a, Result<Option<TaskSnapshot>>> {
         Box::pin(async move {
+            validate_identity(identity)?;
             let identity = identity.clone();
             self.run(move |inner| {
                 let mut file = inner.locked_file()?;
@@ -269,36 +267,27 @@ impl BudgetCheckpointStore for FileBudgetCheckpointStore {
     fn compare_exchange<'a>(
         &'a self,
         expected_revision: u64,
-        checkpoint: &'a BudgetCheckpoint,
-    ) -> BudgetCheckpointFuture<'a, Result<BudgetCheckpointCommit>> {
-        self.compare_exchange_guarded(expected_revision, checkpoint, Arc::new(()))
-    }
-
-    fn compare_exchange_guarded<'a>(
-        &'a self,
-        expected_revision: u64,
-        checkpoint: &'a BudgetCheckpoint,
-        guard: Arc<dyn Send + Sync>,
-    ) -> BudgetCheckpointFuture<'a, Result<BudgetCheckpointCommit>> {
+        checkpoint: &'a TaskSnapshot,
+    ) -> TaskStateFuture<'a, Result<TaskWriteOutcome>> {
         Box::pin(async move {
+            checkpoint.validate()?;
             let checkpoint = checkpoint.clone();
             self.run(move |inner| {
-                let _guard = guard;
-                checkpoint.validate_successor(expected_revision)?;
+                validate_revision(expected_revision, &checkpoint)?;
                 let mut file = inner.locked_file()?;
                 let (latest, log_bytes) = inner.read_latest(&mut file, checkpoint.identity())?;
                 if latest.as_ref() == Some(&checkpoint) {
                     file.sync_all().map_err(indeterminate)?;
-                    return Ok(BudgetCheckpointCommit::ReplayedExact);
+                    return Ok(TaskWriteOutcome::AlreadyPresent);
                 }
-                let actual = latest.as_ref().map_or(0, BudgetCheckpoint::revision);
+                let actual = latest.as_ref().map_or(0, TaskSnapshot::revision);
                 if actual != expected_revision {
-                    return Err(BudgetCheckpointStoreError::Conflict {
+                    return Err(TaskStoreError::Conflict {
                         expected: expected_revision,
                         actual,
                     });
                 }
-                checkpoint.validate_transition(latest.as_ref())?;
+                checkpoint.validate_successor(latest.as_ref())?;
                 let mut encoded = BoundedBytes {
                     bytes: Vec::new(),
                     limit: inner.config.max_record_bytes,
@@ -325,7 +314,7 @@ impl BudgetCheckpointStore for FileBudgetCheckpointStore {
                 // From the first write onward, errors must not claim rollback.
                 file.write_all(&encoded.bytes).map_err(indeterminate)?;
                 file.sync_all().map_err(indeterminate)?;
-                Ok(BudgetCheckpointCommit::Committed)
+                Ok(TaskWriteOutcome::Applied)
             })
             .await
         })
@@ -337,7 +326,7 @@ impl BudgetCheckpointStore for FileBudgetCheckpointStore {
 struct Record {
     version: u16,
     expected_revision: u64,
-    checkpoint: BudgetCheckpoint,
+    checkpoint: TaskSnapshot,
 }
 
 struct BoundedBytes {
@@ -362,27 +351,27 @@ impl Write for BoundedBytes {
     }
 }
 
-fn exceeded(resource: &'static str, limit: usize) -> BudgetCheckpointStoreError {
-    BudgetCheckpointStoreError::LimitExceeded {
+fn exceeded(resource: &'static str, limit: usize) -> TaskStoreError {
+    TaskStoreError::LimitExceeded {
         resource,
         limit: limit as u64,
     }
 }
-fn corrupt(record: u64, message: impl ToString) -> BudgetCheckpointStoreError {
-    BudgetCheckpointStoreError::Corrupt {
+fn corrupt(record: u64, message: impl ToString) -> TaskStoreError {
+    TaskStoreError::Corrupt {
         record,
         message: message.to_string(),
     }
 }
-fn not_committed(error: impl ToString) -> BudgetCheckpointStoreError {
-    BudgetCheckpointStoreError::Storage {
-        certainty: BudgetCheckpointCommitCertainty::DefinitelyNotCommitted,
+fn not_committed(error: impl ToString) -> TaskStoreError {
+    TaskStoreError::Storage {
+        certainty: TaskCommitCertainty::DefinitelyNotCommitted,
         message: error.to_string(),
     }
 }
-fn indeterminate(error: impl ToString) -> BudgetCheckpointStoreError {
-    BudgetCheckpointStoreError::Storage {
-        certainty: BudgetCheckpointCommitCertainty::Indeterminate,
+fn indeterminate(error: impl ToString) -> TaskStoreError {
+    TaskStoreError::Storage {
+        certainty: TaskCommitCertainty::Indeterminate,
         message: error.to_string(),
     }
 }
@@ -405,4 +394,31 @@ impl Drop for LockedFile {
     fn drop(&mut self) {
         let _ = self.0.unlock();
     }
+}
+
+fn validate_revision(expected: u64, snapshot: &TaskSnapshot) -> Result<()> {
+    snapshot.validate()?;
+    let next = expected
+        .checked_add(1)
+        .ok_or(TaskStateError::RevisionExhausted)?;
+    if snapshot.revision() != next {
+        return Err(TaskStateError::RevisionMismatch {
+            expected: next,
+            actual: snapshot.revision(),
+        }
+        .into());
+    }
+    Ok(())
+}
+fn validate_identity(identity: &TaskIdentity) -> Result<()> {
+    for value in [
+        identity.task_id.as_str(),
+        identity.session_id.as_str(),
+        &identity.agent_key,
+    ] {
+        if value.trim().is_empty() || value.len() > 4096 {
+            return Err(TaskStateError::Invalid("invalid task identity").into());
+        }
+    }
+    Ok(())
 }

@@ -4,6 +4,13 @@
 //! The selected Tool runtime owns policy, limits, cancellation, and the exact `ToolCall` /
 //! `ToolResult` pair recorded through [`ToolEventRecorder`].
 
+mod recovery;
+pub use jingwei_core::{
+    ToolEffect, ToolEffectContract, ToolOperation, ToolRetryAudit, ToolRetryReview,
+    ToolReviewOutcome,
+};
+pub use recovery::*;
+
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
@@ -70,6 +77,7 @@ pub struct ToolMetadata {
     timeout_ceiling: Option<Duration>,
     output_ceiling_bytes: Option<usize>,
     approval: ApprovalRequirement,
+    effect: ToolEffectContract,
 }
 
 impl ToolMetadata {
@@ -80,6 +88,7 @@ impl ToolMetadata {
             timeout_ceiling: None,
             output_ceiling_bytes: None,
             approval: ApprovalRequirement::None,
+            effect: ToolEffectContract::default(),
         }
     }
 
@@ -99,6 +108,18 @@ impl ToolMetadata {
     pub fn with_approval(mut self, approval: ApprovalRequirement) -> Self {
         self.approval = approval;
         self
+    }
+
+    #[must_use]
+    pub fn with_effect(mut self, effect: ToolEffect, revision: impl Into<String>) -> Self {
+        self.effect = ToolEffectContract {
+            effect,
+            revision: revision.into(),
+        };
+        self
+    }
+    pub fn effect(&self) -> &ToolEffectContract {
+        &self.effect
     }
 
     pub fn description(&self) -> &str {
@@ -126,12 +147,26 @@ impl ToolMetadata {
 #[derive(Clone, Copy, Debug)]
 pub struct ToolBodyRequest<'a> {
     call_id: &'a str,
+    operation: Option<&'a ToolOperation>,
     arguments: &'a serde_json::Value,
 }
 
 impl<'a> ToolBodyRequest<'a> {
     pub fn new(call_id: &'a str, arguments: &'a serde_json::Value) -> Self {
-        Self { call_id, arguments }
+        Self {
+            call_id,
+            arguments,
+            operation: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_operation(mut self, operation: Option<&'a ToolOperation>) -> Self {
+        self.operation = operation;
+        self
+    }
+    pub fn operation(&self) -> Option<&'a ToolOperation> {
+        self.operation
     }
 
     pub fn call_id(&self) -> &'a str {
@@ -346,6 +381,8 @@ impl ToolTurnBinding {
 /// Per-call limits. A runtime may only tighten these against configured ceilings.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ToolCallOptions {
+    /// Explicit host-prepared retry evidence; clones share one-use admission.
+    pub retry: Option<ToolRetryPlan>,
     /// Host-assigned origin, not an authorization or provider-controlled identity.
     pub action: Option<jingwei_core::ActionContext>,
     pub timeout: Option<Duration>,
@@ -511,6 +548,8 @@ pub enum ToolFinishMode {
 /// Rejection which is guaranteed to occur before reservation or event recording.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ToolPreflightError {
+    #[error("invalid tool effect/retry binding: {0}")]
+    Retry(#[from] ToolRetryError),
     #[error("Tool name must not be empty")]
     EmptyName,
     #[error("Tool name is {actual} bytes, exceeding the hard limit of {max}")]

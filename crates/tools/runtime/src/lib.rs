@@ -762,6 +762,33 @@ impl TurnState {
             let _ = self.budget.stop_with(BudgetStopReason::IdentityMismatch);
             return ready_error(BudgetError::IdentityMismatch.into());
         }
+        let contract = self
+            .runtime
+            .tools
+            .get(name)
+            .map(|entry| entry.metadata.effect().clone())
+            .unwrap_or_default();
+        if let Err(error) = jingwei_tool::validate_tool_contract(&contract) {
+            return ready_error(ToolPreflightError::Retry(error).into());
+        }
+        let operation = match &options.retry {
+            Some(plan) => match plan.take_operation(
+                &self.budget.identity().session_id,
+                &self.budget.identity().task_id,
+                name,
+                &arguments,
+                &contract,
+            ) {
+                Ok(operation) => operation,
+                Err(error) => return ready_error(ToolPreflightError::Retry(error).into()),
+            },
+            None => jingwei_tool::ToolOperation {
+                task_id: self.budget.identity().task_id.clone(),
+                key: format!("operation_{}", uuid::Uuid::new_v4()),
+                contract,
+                retry: None,
+            },
+        };
         let remaining_time = match self.budget.remaining_time() {
             Ok(remaining) => remaining,
             Err(error) => return ready_error(error.into()),
@@ -787,6 +814,7 @@ impl TurnState {
                 Err(error) => return ready_error(error),
             };
         let call = ToolCall {
+            operation: Some(Box::new(operation)),
             action: options.action.clone(),
             id: format!("toolcall_{}", uuid::Uuid::new_v4()),
             name: name.to_string(),
@@ -1444,7 +1472,8 @@ async fn resolve_semantic(
         started: Instant::now(),
         scope: turn.budget.clone(),
     };
-    let request = ToolBodyRequest::new(&call.id, &call.arguments);
+    let request =
+        ToolBodyRequest::new(&call.id, &call.arguments).with_operation(call.operation.as_deref());
     let adapter_cancellation = CancellationToken::new();
     let _adapter_guard = ToolAdapterCancellationGuard(adapter_cancellation.clone());
     let body_cancellation: Arc<dyn CancellationSignal> = Arc::new(CombinedCancellation {
