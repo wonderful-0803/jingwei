@@ -214,6 +214,15 @@ let harness = StandardCoreBundle::new()
 - v0 不自动选择模型、provider、持久化位置或配置来源，也不承诺动态插件加载、稳定 ABI、通用模型驱动
   工具循环或跨进程 JSONL 协调。
 
+## 多 LLM 协作工作区
+
+多个模型或操作者共用同一 checkout 时，接手入口、任务认领、执行事件和交接约定放在
+[`contrib/slm-harness`](contrib/slm-harness/README.md)。协作者先读该目录的 `AGENTS.md`，
+再读 `collaboration/STATE.md` 和最新 handoff，然后再动代码。
+
+这是一套协作约定和初始化快照，依靠协作者遵守，不是自动监控或同步服务；短期目录锁只覆盖
+共用同一路径的协作者，跨 checkout、跨机器需另行协调。领域设计、实验数据和评测材料不在该目录维护。
+
 ## License
 
 Jingwei is dual-licensed under either of:

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "SLMHarness collaboration workspace",
+  "purpose": "Shared multi-agent execution state and handoffs for a general task-scoped harness",
+  "coordination_mode": "shared_local_directory",
+  "entrypoint": "AGENTS.md",
+  "state": "collaboration/STATE.md",
+  "tasks": "collaboration/TASKS.md",
+  "decisions": "collaboration/DECISIONS.md",
+  "events": "collaboration/events",
+  "handoffs": "collaboration/handoffs",
+  "repository_root": "../..",
+  "repositories": [
+    {
+      "path": "../..",
+      "remote": "https://github.com/wonderful-0803/jingwei"
+    }
+  ],
+  "note": "Portable coordination baseline; inspect the current checkout and claim tasks before execution. No local environment or active owner is imported."
+}
