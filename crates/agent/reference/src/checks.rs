@@ -49,7 +49,7 @@ impl CompletionDecision {
         }
     }
 }
-/// A synchronous, data-only decision. Rejection stops immediately, without retry.
+/// A synchronous, data-only decision. Rejection stops unless completion recovery is explicitly enabled.
 pub trait CompletionChecker: Send + Sync {
     fn check(&self, input: CompletionInput<'_>)
     -> Result<CompletionDecision, ReferenceConfigError>;
@@ -114,5 +114,56 @@ impl Default for ReferenceChecks {
             state: Arc::new(UnknownReferenceState),
             progress: ProgressPolicy::default(),
         }
+    }
+}
+
+/// Optional per-turn workflow constraints. Names only narrow existing grants.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WorkflowPolicy {
+    pub inspection_tools: std::collections::BTreeSet<String>,
+    pub max_inspections: Option<u32>,
+    pub reserve_steps: u32,
+    pub recover_completion: bool,
+    pub recover_no_progress: bool,
+}
+
+impl WorkflowPolicy {
+    pub(crate) fn validate(&self, steps: u32) -> Result<(), ReferenceConfigError> {
+        if self.reserve_steps >= steps
+            || self.max_inspections.is_some_and(|n| n == 0 || n > 1024)
+            || self.inspection_tools.len() > 1024
+            || self
+                .inspection_tools
+                .iter()
+                .any(|n| n.trim().is_empty() || n.len() > 4096)
+        {
+            return Err(ReferenceConfigError);
+        }
+        Ok(())
+    }
+}
+pub(crate) struct WorkflowSelector<'a> {
+    pub base: &'a dyn jingwei_context::ToolSelector,
+    pub policy: &'a WorkflowPolicy,
+    pub closed: bool,
+}
+impl jingwei_context::ToolSelector for WorkflowSelector<'_> {
+    fn select(
+        &self,
+        authorized: &[jingwei_core::ModelToolDefinition],
+    ) -> Result<Vec<String>, jingwei_context::ViewError> {
+        let names = self.base.select(authorized)?;
+        let mut seen = std::collections::BTreeSet::new();
+        if names
+            .iter()
+            .any(|n| !seen.insert(n) || !authorized.iter().any(|t| &t.name == n))
+        {
+            return Err(jingwei_context::ViewError::Unauthorized);
+        }
+        Ok(names
+            .into_iter()
+            .filter(|n| !self.closed || !self.policy.inspection_tools.contains(n))
+            .collect())
     }
 }

@@ -1,0 +1,18 @@
+{
+  "id": "text-smoke",
+  "skill": "skills/text.md",
+  "worker": "text_worker.py",
+  "tools": [
+    {
+      "name": "text_stats",
+      "description": "读取宿主提供的文本，返回行数、字数和字符数。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "read_only": true
+    }
+  ]
+}

@@ -64,3 +64,14 @@ PYCHECK
 ```
 
 这些检查仅验证协作文件，不代表 runtime 或业务功能已通过测试。
+
+## 领域组件（源码快照）
+
+`experiments/` 收纳按任务装配的 Excel 和 Word 插件、skills、工具 worker、独立 grader、运行器及回归测试。它们复用 jingwei 的 ReferenceAgent/Tool bridge；领域策略和副作用约束留在 profile、skill 与插件中，核心 harness 不硬编码 Excel 或 Word。
+
+- `experiments/spreadsheetbench/`：SpreadsheetBench 适配、LibreOffice 重算、profile v1/v2、提交产物契约和独立评分。
+- `experiments/excel-smoke/`：小型 Excel 冒烟插件与策略回归。
+- `experiments/wordbench/`：python-docx Word 插件、24 题任务规格、fixture/grader/render 流程和 profile/skill。
+- `experiments/harness-reliability/`、`experiments/stratified-bench/`：通用可靠性验证和分层抽样运行器。
+
+这些文件是可审阅的源码组件；数据集、模型输出、DOCX/XLSX 夹具和逐题 trace 仍由外部 SLMHarness 工作区挂载，按 `.gitignore` 排除。真实评测前请从外部工作区根目录执行各实验 README 中的命令，并设置 `SLMHARNESS_ROOT` 或按本地目录调整输入/产物路径。仓库 PR 不宣称已将本地评测产物发布。

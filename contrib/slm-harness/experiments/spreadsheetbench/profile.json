@@ -1,0 +1,43 @@
+{
+  "id": "spreadsheetbench-python-v1",
+  "skill": "skill.md",
+  "worker": "adapter.py",
+  "tools": [
+    {
+      "name": "inspect_python",
+      "description": "Inspect the workbook at /input/input.xlsx with Python; print observations. Interpreter state is not retained.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Complete Python code to execute in the sandbox."
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "read_only": false
+    },
+    {
+      "name": "submit_solution",
+      "description": "Execute a complete standalone Python solution with clean work area; read /input/input.xlsx and save /work/output.xlsx. Replaces previous submission.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Complete Python code to execute in the sandbox."
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "read_only": false
+    }
+  ]
+}

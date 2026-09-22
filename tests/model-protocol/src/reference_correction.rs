@@ -317,3 +317,193 @@ async fn correction_report_failure_keeps_charge_and_prevents_retry() {
     fixture.audit_closed_turns();
     fixture.harness.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn incomplete_action_is_corrected_without_executing_partial_code() {
+    for json_mode in [false, true] {
+        let fixture = RefFixture::new(
+            config(4, json_mode),
+            vec![
+                GenerationResponse::text(
+                    "{\"action\":\"call_tool\",\"name\":\"lookup\",",
+                    FinishReason::Length,
+                ),
+                call_response(json_mode),
+                final_response(json_mode),
+            ],
+            true,
+            ToolMode::Success,
+        )
+        .await;
+        let result = fixture
+            .harness
+            .run_turn(&SessionId::new(), "reference", "lookup")
+            .await;
+        assert!(
+            result.is_ok(),
+            "incomplete pre-tool proposal must receive a bounded correction"
+        );
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 3);
+        assert_eq!(corrections(&fixture).len(), 1);
+        assert_eq!(
+            result
+                .unwrap()
+                .task_run_report()
+                .unwrap()
+                .budget
+                .charged
+                .corrections,
+            1
+        );
+        fixture.audit_closed_turns();
+        fixture.harness.shutdown().await.unwrap();
+    }
+}
+
+struct RejectOnce(AtomicUsize);
+impl CompletionChecker for RejectOnce {
+    fn check(&self, _: CompletionInput<'_>) -> Result<CompletionDecision, ReferenceConfigError> {
+        Ok(if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            CompletionDecision::Rejected {
+                reason: "missing delivery".into(),
+            }
+        } else {
+            CompletionDecision::Verified {
+                evidence: "host:receipt".into(),
+            }
+        })
+    }
+}
+#[tokio::test]
+async fn opt_in_completion_repair_charges_budget_and_preserves_tool_history() {
+    for json_mode in [false, true] {
+        let mut cfg = config(5, json_mode);
+        cfg.workflow.recover_completion = true;
+        let agent = ReferenceAgent::new(cfg, policies())
+            .unwrap()
+            .with_checks(ReferenceChecks {
+                completion: Arc::new(RejectOnce(AtomicUsize::new(0))),
+                ..Default::default()
+            })
+            .unwrap();
+        let fixture = RefFixture::agent(
+            Arc::new(agent),
+            vec![
+                call_response(json_mode),
+                final_response(json_mode),
+                call_response(json_mode),
+                final_response(json_mode),
+            ],
+            true,
+            ToolMode::Success,
+        )
+        .await;
+        let result = fixture
+            .harness
+            .run_turn(&SessionId::new(), "reference", "deliver")
+            .await
+            .unwrap();
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 2);
+        assert!(fixture.reports()[0].business_verified);
+        assert_eq!(
+            result.task_run_report().unwrap().budget.charged.corrections,
+            1
+        );
+        let requests = fixture.model.requests.lock().unwrap();
+        assert!(
+            serde_json::to_string(&requests[2])
+                .unwrap()
+                .contains("found data")
+        );
+        drop(requests);
+        fixture.audit_closed_turns();
+        fixture.harness.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn inspection_cap_removes_tool_even_if_model_requests_it_again() {
+    for json_mode in [false, true] {
+        let mut cfg = config(6, json_mode);
+        cfg.workflow.inspection_tools.insert("lookup".into());
+        cfg.workflow.max_inspections = Some(2);
+        let fixture = RefFixture::new(
+            cfg,
+            vec![call_response(json_mode); 3],
+            true,
+            ToolMode::Success,
+        )
+        .await;
+        assert!(
+            fixture
+                .harness
+                .run_turn(&SessionId::new(), "reference", "inspect")
+                .await
+                .is_err()
+        );
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(corrections(&fixture).len(), 0); // unavailable tools never gain retries/grants
+        let requests = fixture.model.requests.lock().unwrap();
+        let schema = serde_json::to_string(&requests[2].constraint).unwrap();
+        assert!(!schema.contains("lookup"));
+        drop(requests);
+        fixture.audit_closed_turns();
+        fixture.harness.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn reserve_steps_hides_inspection_before_final_slots() {
+    for json_mode in [false, true] {
+        let mut cfg = config(3, json_mode);
+        cfg.workflow.inspection_tools.insert("lookup".into());
+        cfg.workflow.reserve_steps = 2;
+        let fixture = RefFixture::new(
+            cfg,
+            vec![call_response(json_mode); 2],
+            true,
+            ToolMode::Success,
+        )
+        .await;
+        assert!(
+            fixture
+                .harness
+                .run_turn(&SessionId::new(), "reference", "inspect")
+                .await
+                .is_err()
+        );
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+        fixture.audit_closed_turns();
+        fixture.harness.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn no_progress_gets_only_one_opt_in_recovery() {
+    for json_mode in [false, true] {
+        for changes_strategy in [false, true] {
+            let mut cfg = config(8, json_mode);
+            cfg.workflow.recover_no_progress = true;
+            let mut responses = vec![call_response(json_mode); 3];
+            responses.push(if changes_strategy {
+                final_response(json_mode)
+            } else {
+                call_response(json_mode)
+            });
+            let fixture = RefFixture::new(cfg, responses, true, ToolMode::Success).await;
+            let result = fixture
+                .harness
+                .run_turn(&SessionId::new(), "reference", "lookup")
+                .await;
+            assert_eq!(result.is_ok(), changes_strategy);
+            assert_eq!(fixture.model.calls.load(Ordering::SeqCst), 4);
+            assert_eq!(corrections(&fixture).len(), 1);
+            if !changes_strategy {
+                assert_eq!(fixture.reports()[0].stop, ReferenceStop::NoProgress);
+            }
+            fixture.audit_closed_turns();
+            fixture.harness.shutdown().await.unwrap();
+        }
+    }
+}

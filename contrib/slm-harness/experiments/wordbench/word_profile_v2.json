@@ -1,0 +1,21 @@
+{
+  "id": "wordbench-docx-v2",
+  "skill": "word_skill_v2.md",
+  "worker": "word_worker.py",
+  "tools": [
+    {
+      "name": "inspect_docx",
+      "description": "Inspect /input/input.docx and return a stable paragraph, style, table, section and media summary. Read-only: cannot save output.",
+      "parameters": {"type":"object","properties":{},"additionalProperties":false},
+      "read_only": true
+    },
+    {
+      "name": "submit_docx_operations",
+      "description": "Apply a JSON operations object to the isolated input DOCX and save /work/output.docx. The executor validates operation names and file integrity; answer correctness is checked independently after the turn.",
+      "parameters": {"type":"object","properties":{"operations":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"text":{"type":"string"},"style":{"type":"string"},"match":{"type":"string"},"replacement":{"type":"string"},"title":{"type":"string"},"rows":{"type":"array","items":{"type":"array","items":{"type":"string"}}},"table_index":{"type":"integer"},"row_index":{"type":"integer"},"col_index":{"type":"integer"},"row_key":{"type":"string"},"value":{"type":"string"},"descending":{"type":"boolean"},"orientation":{"type":"string"},"margin_inches":{"type":"number"},"header":{"type":"string"},"footer":{"type":"string"},"texts":{"type":"array","items":{"type":"string"}}},"required":["op"],"additionalProperties":false}}},"required":["operations"],"additionalProperties":false},
+      "read_only": false
+    }
+  ],
+  "workflow": {"inspection_tools":["inspect_docx"],"max_inspections":1,"reserve_steps":2,"recover_completion":true,"recover_no_progress":true},
+  "delivery": {"submission_tools":["submit_docx_operations"],"artifacts":["output.docx"]}
+}

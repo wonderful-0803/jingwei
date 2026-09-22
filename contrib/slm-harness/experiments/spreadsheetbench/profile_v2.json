@@ -1,0 +1,61 @@
+{
+  "id": "spreadsheetbench-python-v2",
+  "skill": "skill_v2.md",
+  "worker": "adapter_v2.py",
+  "tools": [
+    {
+      "name": "inspect_python",
+      "description": "Inspect the workbook at /input/input.xlsx with Python; print observations. Interpreter state is not retained. Read-only: cannot save output; at most two inspections.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Complete Python code to execute in the sandbox."
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "read_only": true
+    },
+    {
+      "name": "submit_solution",
+      "description": "Execute a complete standalone Python solution with clean work area; read /input/input.xlsx and save /work/output.xlsx. Replaces previous submission.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Complete Python code to execute in the sandbox."
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "read_only": false
+    }
+  ],
+  "workflow": {
+    "inspection_tools": [
+      "inspect_python"
+    ],
+    "max_inspections": 2,
+    "reserve_steps": 2,
+    "recover_completion": true,
+    "recover_no_progress": true
+  },
+  "delivery": {
+    "submission_tools": [
+      "submit_solution"
+    ],
+    "artifacts": [
+      "solution.py",
+      "sandbox/output.xlsx"
+    ]
+  }
+}

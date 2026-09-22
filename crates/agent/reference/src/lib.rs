@@ -57,6 +57,7 @@ impl ReferenceClock for SystemReferenceClock {
 #[derive(Clone, Debug)]
 pub struct ReferenceAgentConfig {
     pub max_steps: u32,
+    pub workflow: WorkflowPolicy,
     /// Close the turn after each confirmed successful tool step for host checkpointing.
     pub checkpoint_each_step: bool,
     /// Per-turn ceiling, also charged to the shared Task correction budget.
@@ -79,6 +80,7 @@ impl ReferenceAgentConfig {
     pub fn new(target: ContextTarget, context_budget: ContextBudget) -> Self {
         Self {
             max_steps: 8,
+            workflow: WorkflowPolicy::default(),
             checkpoint_each_step: false,
             max_corrections: 2,
             protocol: ContextActionProtocol::Native,
@@ -177,6 +179,7 @@ impl ReferenceAgent {
         config: ReferenceAgentConfig,
         policies: ReferenceAgentPolicies,
     ) -> Result<Self, ReferenceConfigError> {
+        config.workflow.validate(config.max_steps)?;
         if config.max_steps == 0
             || config.max_steps > 1024
             || config.max_corrections > 1024
@@ -234,6 +237,51 @@ impl ReferenceAgent {
         })
         .await
     }
+    async fn correct(
+        &self,
+        ctx: &dyn AgentContext,
+        run: &mut ReferenceRunReport,
+        input: &AgentTurnInput<'_>,
+        ordinal: u32,
+        decision: &DecisionContext,
+        reason: CorrectionReason,
+    ) -> Result<String, AgentError> {
+        if ordinal == self.config.max_steps {
+            run.stop = ReferenceStop::StepLimit;
+            return Err(failed(
+                "reference_step_limit",
+                "no action steps remain for correction",
+            ));
+        }
+        if run.corrections >= self.config.max_corrections {
+            run.stop = ReferenceStop::CorrectionLimit;
+            return Err(failed(
+                "reference_correction_limit",
+                "finite correction limit reached",
+            ));
+        }
+        if ctx.cancellation().is_cancelled() {
+            return Err(AgentError::Cancelled);
+        }
+        ctx.budget()
+            .ok_or_else(|| failed("reference_budget_required", "controlled budget required"))?
+            .consume_correction()?;
+        run.corrections += 1;
+        self.emit(
+            ctx,
+            REFERENCE_CORRECTION_EVENT,
+            &ReferenceCorrectionReport {
+                version: 1,
+                turn_id: input.turn_id.clone(),
+                decision: decision.clone(),
+                ordinal,
+                correction: run.corrections,
+                reason,
+            },
+        )
+        .await?;
+        Ok(correction::feedback(reason))
+    }
     async fn drive(
         &self,
         input: &AgentTurnInput<'_>,
@@ -289,6 +337,8 @@ impl ReferenceAgent {
             protocol: self.config.protocol,
         };
         let mut previous = None;
+        let mut inspections = 0u32;
+        let mut progress_recovered = false;
         let mut correction_feedback: Option<String> = None;
         for ordinal in 1..=self.config.max_steps {
             if ctx.cancellation().is_cancelled() {
@@ -330,6 +380,24 @@ impl ReferenceAgent {
             if let Some(feedback) = &correction_feedback {
                 system.push(feedback.clone());
             }
+            let inspection_closed = self
+                .config
+                .workflow
+                .max_inspections
+                .is_some_and(|n| inspections >= n)
+                || ordinal
+                    > self
+                        .config
+                        .max_steps
+                        .saturating_sub(self.config.workflow.reserve_steps);
+            if inspection_closed && !self.config.workflow.inspection_tools.is_empty() {
+                system.push("Inspection is closed for this turn. Use the observations already obtained and the remaining authorized tools to execute and submit the task. Reserve a final response after successful submission.".into());
+            }
+            let selector = WorkflowSelector {
+                base: self.policies.selector.as_ref(),
+                policy: &self.config.workflow,
+                closed: inspection_closed,
+            };
             // ModelRuntime already charges a step for each accepted inference;
             // do not double-charge it with AgentBudget::consume_step here.
             let report = step
@@ -349,7 +417,7 @@ impl ReferenceAgent {
                     },
                     ContextActionPolicies {
                         counter: self.policies.counter.as_ref(),
-                        selector: self.policies.selector.as_ref(),
+                        selector: &selector,
                         result: self.policies.result.as_ref(),
                         store: self.policies.store.as_ref(),
                         tool_limits: self.config.tool_limits,
@@ -367,36 +435,10 @@ impl ReferenceAgent {
                     if let Some((decision, reason)) =
                         correction::eligible(&error, self.config.protocol)
                     {
-                        if ordinal == self.config.max_steps {
-                            run.stop = ReferenceStop::StepLimit;
-                            return Err(failed(
-                                "reference_step_limit",
-                                "no action steps remain for correction",
-                            ));
-                        }
-                        if run.corrections >= self.config.max_corrections {
-                            run.stop = ReferenceStop::CorrectionLimit;
-                            return Err(failed(
-                                "reference_correction_limit",
-                                "finite correction limit reached",
-                            ));
-                        }
-                        if ctx.cancellation().is_cancelled() {
-                            return Err(AgentError::Cancelled);
-                        }
-                        budget.consume_correction()?;
-                        run.corrections += 1;
-                        let correction = ReferenceCorrectionReport {
-                            version: 1,
-                            turn_id: input.turn_id.clone(),
-                            decision: decision.clone(),
-                            ordinal,
-                            correction: run.corrections,
-                            reason,
-                        };
-                        self.emit(ctx, REFERENCE_CORRECTION_EVENT, &correction)
-                            .await?;
-                        correction_feedback = Some(correction::feedback(reason));
+                        correction_feedback = Some(
+                            self.correct(ctx, run, input, ordinal, decision, reason)
+                                .await?,
+                        );
                         continue;
                     }
                     if let ContextActionError::ResultView { report, .. } = &error {
@@ -454,6 +496,21 @@ impl ReferenceAgent {
                             run.business_verified = true;
                         }
                         CompletionDecision::Rejected { .. } => {
+                            if self.config.workflow.recover_completion {
+                                correction_feedback = Some(
+                                    self.correct(
+                                        ctx,
+                                        run,
+                                        input,
+                                        ordinal,
+                                        &report.step.context,
+                                        CorrectionReason::CompletionRejected,
+                                    )
+                                    .await?,
+                                );
+                                current = report.next_current;
+                                continue;
+                            }
                             run.stop = ReferenceStop::CompletionRejected;
                             return Err(failed(
                                 "reference_completion_rejected",
@@ -502,6 +559,14 @@ impl ReferenceAgent {
                     ));
                 }
                 StepOutcome::ToolCompleted { execution } => {
+                    if self
+                        .config
+                        .workflow
+                        .inspection_tools
+                        .contains(&execution.call().name)
+                    {
+                        inspections += 1;
+                    }
                     let mut key = BoundedPayload {
                         bytes: vec![],
                         max: self.checks.progress.max_observation_bytes,
@@ -530,6 +595,25 @@ impl ReferenceAgent {
                     previous = Some(key.bytes);
                     let limit = self.checks.progress.limit(&execution.call().name);
                     if run.repeated_observations >= limit {
+                        if self.config.workflow.recover_no_progress
+                            && !progress_recovered
+                            && !self.config.checkpoint_each_step
+                        {
+                            correction_feedback = Some(
+                                self.correct(
+                                    ctx,
+                                    run,
+                                    input,
+                                    ordinal,
+                                    &report.step.context,
+                                    CorrectionReason::NoProgress,
+                                )
+                                .await?,
+                            );
+                            progress_recovered = true;
+                            current = report.next_current;
+                            continue;
+                        }
                         run.stop = ReferenceStop::NoProgress;
                         return Err(failed(
                             "reference_no_progress",
