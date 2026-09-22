@@ -1,0 +1,9 @@
+{
+ "id":"text-delivery-v1","skill":"skill.md","worker":"worker.py",
+ "workflow":{"inspection_tools":["inspect_text"],"max_inspections":1,"reserve_steps":2,"recover_completion":true,"recover_no_progress":true},
+ "delivery":{"submission_tools":["submit_text"],"artifacts":["answer.txt"]},
+ "tools":[
+  {"name":"inspect_text","description":"Read input text, once.","read_only":true,"parameters":{"type":"object","properties":{},"additionalProperties":false}},
+  {"name":"submit_text","description":"Save the final transformed text.","read_only":false,"parameters":{"type":"object","properties":{"content":{"type":"string"}},"required":["content"],"additionalProperties":false}}
+ ]
+}

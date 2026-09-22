@@ -11,6 +11,9 @@ pub const REFERENCE_CORRECTION_EVENT: &str = "correction_v1";
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CorrectionReason {
     InvalidFormat,
+    IncompleteResponse,
+    CompletionRejected,
+    NoProgress,
     EmptyText,
     MultipleActions,
     InvalidArguments,
@@ -53,6 +56,9 @@ pub(crate) fn eligible(
                 _ => return None,
             }
         }
+        ActionStepFailure::Validation(ActionError::ModelProtocol(
+            ModelProtocolError::IncompleteResponse,
+        )) => CorrectionReason::IncompleteResponse,
         ActionStepFailure::Validation(ActionError::InvalidAction) => {
             CorrectionReason::InvalidFormat
         }
@@ -73,8 +79,23 @@ pub(crate) fn eligible(
     Some((&error.context, reason))
 }
 pub(crate) fn feedback(reason: CorrectionReason) -> String {
+    let instruction = match reason {
+        CorrectionReason::IncompleteResponse => {
+            "The previous response was incomplete and no tool executed. Return one shorter complete action. Use concise code and bounded output; omit commentary and repeated print statements."
+        }
+        CorrectionReason::CompletionRejected => {
+            "The host rejected completion. Fulfill the task submission contract using an available tool, then finish. A completion claim alone is insufficient."
+        }
+        CorrectionReason::NoProgress => {
+            "Repeated actions produced no progress. Change strategy using the observations already obtained; execute or submit the solution instead of repeating inspection."
+        }
+        _ => {
+            "The previous proposal was rejected before tool execution. Return exactly one action satisfying the supplied schema. Do not repeat unavailable or denied operations."
+        }
+    };
     serde_json::json!({
         "type":"jingwei_action_correction_v1", "reason":reason,
-        "instruction":"The previous proposal was rejected before tool execution. Return exactly one action satisfying the supplied schema. Do not repeat unavailable or denied operations."
-    }).to_string()
+        "instruction":instruction
+    })
+    .to_string()
 }

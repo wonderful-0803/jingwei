@@ -9,3 +9,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+# Benchmark inputs/outputs are mounted from the external SLMHarness workspace.
+*.docx
+*.xlsx
+*.xls
+*.pdf
+*.png

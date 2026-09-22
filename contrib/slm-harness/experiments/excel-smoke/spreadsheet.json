@@ -1,0 +1,263 @@
+{
+  "id": "spreadsheet-smoke",
+  "skill": "skills/spreadsheet.md",
+  "worker": "worker.py",
+  "tools": [
+    {
+      "name": "inspect_workbook",
+      "description": "读取工作簿数据、授权范围和当前revision。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "read_only": true
+    },
+    {
+      "name": "apply_operation",
+      "description": "在授权范围的临时工作簿执行一个受限表格操作；参数字段严格按操作分支。",
+      "parameters": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "remove_empty_rows"
+              },
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string",
+                "description": "含表头的数据源范围；分组输出由output_sheet指定。"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "operation",
+              "sheet",
+              "range",
+              "expected_revision",
+              "parameters"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "deduplicate"
+              },
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string",
+                "description": "含表头的数据源范围；分组输出由output_sheet指定。"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "keys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 4
+                  }
+                },
+                "required": [
+                  "keys"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "operation",
+              "sheet",
+              "range",
+              "expected_revision",
+              "parameters"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "sort"
+              },
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string",
+                "description": "含表头的数据源范围；分组输出由output_sheet指定。"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "column": {
+                    "type": "string"
+                  },
+                  "descending": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "column",
+                  "descending"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "operation",
+              "sheet",
+              "range",
+              "expected_revision",
+              "parameters"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "group_sum"
+              },
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string",
+                "description": "含表头的数据源范围；分组输出由output_sheet指定。"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "group_by": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 2
+                  },
+                  "sum_column": {
+                    "type": "string"
+                  },
+                  "output_sheet": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "group_by",
+                  "sum_column",
+                  "output_sheet"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "operation",
+              "sheet",
+              "range",
+              "expected_revision",
+              "parameters"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "set_formula"
+              },
+              "sheet": {
+                "type": "string"
+              },
+              "range": {
+                "type": "string",
+                "description": "公式写入目标单元格，必须等于parameters.destination；读取范围由parameters.source_range指定。"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "function": {
+                    "enum": [
+                      "SUM",
+                      "AVERAGE",
+                      "COUNT",
+                      "MIN",
+                      "MAX"
+                    ]
+                  },
+                  "source_range": {
+                    "type": "string"
+                  },
+                  "destination": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "function",
+                  "source_range",
+                  "destination"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "operation",
+              "sheet",
+              "range",
+              "expected_revision",
+              "parameters"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "read_only": false
+    },
+    {
+      "name": "validate_workbook",
+      "description": "重算并检验公式、原文件和保护工作表，导出候选文件后重新打开验证。成功后才能final。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "read_only": false
+    }
+  ]
+}

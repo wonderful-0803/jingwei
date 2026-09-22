@@ -461,9 +461,10 @@ async fn expiry_clock_and_result_view_stops_preserve_canonical_closure() {
         ReferenceStop::ContentExpired,
         ReferenceStop::ClockFailure,
         ReferenceStop::ResultViewFailed,
-        ReferenceStop::InvalidAction,
+        ReferenceStop::CorrectionLimit,
     ] {
         let mut cfg = config(4, false);
+        cfg.max_corrections = 0; // This fixture verifies terminal closure with recovery disabled.
         let mut policy = policies();
         let responses = match stop {
             ReferenceStop::ContentExpired => {

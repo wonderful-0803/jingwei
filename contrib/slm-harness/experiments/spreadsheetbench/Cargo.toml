@@ -1,0 +1,16 @@
+[package]
+name = "jingwei-bench-runner"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[dependencies]
+jingwei = { path = "../../../../crates/sdk/facade", features = ["reference-agent"] }
+jingwei-core = { path = "../../../../crates/core/core" }
+jingwei-standard = { path = "../../../../crates/runtime/standard" }
+jingwei-tool-runtime = { path = "../../../../crates/tools/runtime" }
+jingwei-journal-jsonl = { path = "../../../../crates/session/jsonl" }
+jingwei-openai = { path = "../../../../crates/llm/openai" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+sha2 = "0.10"
